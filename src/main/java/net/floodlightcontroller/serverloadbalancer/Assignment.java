@@ -3,19 +3,19 @@ package net.floodlightcontroller.serverloadbalancer;
 import org.projectfloodlight.openflow.types.IPv4AddressWithMask;
 
 public class Assignment {
-    private int server;
+    private Integer server;
     private IPv4AddressWithMask prefix;
 
-    public Assignment(int server, IPv4AddressWithMask prefix) {
+    public Assignment(Integer server, IPv4AddressWithMask prefix) {
         this.server = server;
         this.prefix = prefix;
     }
 
-    public int getServer() {
+    public Integer getServer() {
         return server;
     }
 
-    public Assignment setServer(int server) {
+    public Assignment setServer(Integer server) {
         this.server = server;
         return this;
     }
@@ -39,6 +39,6 @@ public class Assignment {
 
     @Override
     public String toString() {
-        return String.format("Assignment: %d -> %s", server, prefix);
+        return String.format("Assignment: %s -> %d", prefix, server);
     }
 }
