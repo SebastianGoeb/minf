@@ -1,8 +1,5 @@
 package net.floodlightcontroller.serverloadbalancer;
 
-import org.projectfloodlight.openflow.protocol.OFFactory;
-import org.projectfloodlight.openflow.protocol.match.Match;
-import org.projectfloodlight.openflow.types.IPv4Address;
 import org.projectfloodlight.openflow.types.IPv4AddressWithMask;
 
 import java.util.*;
@@ -19,29 +16,29 @@ public class Transition {
     // Factories
     public static Transition direct(Integer fromServer, IPv4AddressWithMask fromPrefix,
                                     Integer toServer, IPv4AddressWithMask toPrefix) {
-        List<Assignment> from = Collections.singletonList(new Assignment(fromServer, fromPrefix));
-        List<Assignment> to = Collections.singletonList(new Assignment(toServer, toPrefix));
+        List<Assignment> from = Collections.singletonList(new Assignment(fromPrefix, fromServer));
+        List<Assignment> to = Collections.singletonList(new Assignment(toPrefix, toServer));
         return new Transition(from, to);
     }
 
     public static Transition merge(Integer toServer, IPv4AddressWithMask toPrefix) {
         List<Assignment> from = new ArrayList<>();
-        List<Assignment> to = Collections.singletonList(new Assignment(toServer, toPrefix));
+        List<Assignment> to = Collections.singletonList(new Assignment(toPrefix, toServer));
         return new Transition(from, to);
     }
 
     public static Transition split(Integer fromServer, IPv4AddressWithMask fromPrefix) {
-        List<Assignment> from = Collections.singletonList(new Assignment(fromServer, fromPrefix));
+        List<Assignment> from = Collections.singletonList(new Assignment(fromPrefix, fromServer));
         List<Assignment> to = new ArrayList<>();
         return new Transition(from, to);
     }
 
     public void addFrom(Integer server, IPv4AddressWithMask prefix) {
-        from.add(new Assignment(server, prefix));
+        from.add(new Assignment(prefix, server));
     }
 
     public void addTo(Integer server, IPv4AddressWithMask prefix) {
-        to.add(new Assignment(server, prefix));
+        to.add(new Assignment(prefix, server));
     }
 
     public List<Assignment> getFrom() {

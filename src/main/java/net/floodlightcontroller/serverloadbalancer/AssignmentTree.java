@@ -31,7 +31,7 @@ public class AssignmentTree {
         List<Assignment> assignments = new ArrayList<>();
 
         if (server != null) {
-            assignments.add(new Assignment(server, prefix));
+            assignments.add(new Assignment(prefix, server));
         } else if (children != null) {
             assignments.addAll(children[0].assignments());
             assignments.addAll(children[1].assignments());

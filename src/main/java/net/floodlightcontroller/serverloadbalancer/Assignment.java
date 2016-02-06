@@ -3,21 +3,12 @@ package net.floodlightcontroller.serverloadbalancer;
 import org.projectfloodlight.openflow.types.IPv4AddressWithMask;
 
 public class Assignment {
-    private Integer server;
     private IPv4AddressWithMask prefix;
+    private Integer server;
 
-    public Assignment(Integer server, IPv4AddressWithMask prefix) {
-        this.server = server;
+    public Assignment(IPv4AddressWithMask prefix, Integer server) {
         this.prefix = prefix;
-    }
-
-    public Integer getServer() {
-        return server;
-    }
-
-    public Assignment setServer(Integer server) {
         this.server = server;
-        return this;
     }
 
     public IPv4AddressWithMask getPrefix() {
@@ -26,6 +17,15 @@ public class Assignment {
 
     public Assignment setPrefix(IPv4AddressWithMask prefix) {
         this.prefix = prefix;
+        return this;
+    }
+
+    public Integer getServer() {
+        return server;
+    }
+
+    public Assignment setServer(Integer server) {
+        this.server = server;
         return this;
     }
 
