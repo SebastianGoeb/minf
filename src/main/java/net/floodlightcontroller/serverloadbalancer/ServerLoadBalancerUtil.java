@@ -21,15 +21,34 @@ public class ServerLoadBalancerUtil {
      * @return The assignment of servers to IPv4-prefixes
      */
     public static AssignmentTree generateAssignmentTreeOptimal(Config config) {
-        // Scale and round weights to add up to maxPrefixLength
-        List<Integer> normalizedWeights = normalize(config.getWeights(), 1 << config.getMaxPrefixLength());
+        AssignmentTree assignmentTree = AssignmentTree.balancedTree(config.getMaxPrefixLength());
+
+        // Drop multicast and RFC6890 prefixes ( 224.0.0.0/4 + 240.0.0.0/4 = 224.0.0.0/3 )
+        IPv4AddressWithMask unused = IPv4AddressWithMask.of("224.0.0.0/3");
+        assignmentTree.assignPrefix(unused, -1);
+
+        // Scale and round weights to add up to maxPrefixLength * 7/8
+        List<Integer> normalizedWeights = normalize(config.getWeights(), (1 << config.getMaxPrefixLength()) / 8 * 7);
+        
         // Translate weights into subnet masks that can be assigned to prefixes
-        SortedMap<IPv4Address, List<Integer>> masks = generateMasks(normalizedWeights);
+        SortedMap<IPv4Address, List<Integer>> masks = new TreeMap<>();
+        for (int server = 0; server < normalizedWeights.size(); server++) {
+            for (int i = 0; i <= config.getMaxPrefixLength(); i++) {
+                if ((normalizedWeights.get(server) & (1 << i)) != 0) {
+                    IPv4Address mask = IPv4Address.ofCidrMaskLength((config.getMaxPrefixLength() - i));
+                    if (!masks.containsKey(mask)) {
+                        masks.put(mask, new ArrayList<>());
+                    }
+                    masks.get(mask).add(server);
+                }
+            }
+        }
+
         // Assign prefixes
         // TODO refactor
-        AssignmentTree assignment = AssignmentTree.balancedTree(config.getMaxPrefixLength());
-        assignment.assignMasks(masks);
-        return assignment;
+        assignmentTree.assignMasks(masks);
+
+        return assignmentTree;
     }
 
     /**
@@ -42,7 +61,9 @@ public class ServerLoadBalancerUtil {
         List<Transition> transitions = new ArrayList<>();
         if (from.server != null && to.server != null) {
             // Both trees have an assignment, so we must be dealing with a direct transition
-            transitions.add(Transition.direct(from.server, from.prefix, to.server, to.prefix));
+            if (from.server != to.server) {
+                transitions.add(Transition.direct(from.server, from.prefix, to.server, to.prefix));
+            }
 
         } else if (from.server == null && to.server == null) {
             // Neither tree has an assignment, so we continue searching deeper

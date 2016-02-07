@@ -103,19 +103,23 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
                 Match removedMatch = ((OFFlowRemoved) msg).getMatch();
 
                 // Find transition with overall prefix matching removed flow
-                Transition matchingTransition = transitions.stream()
-                        .filter(t -> incomingMatch(t.prefix()).equals(removedMatch))
-                        .findFirst()
-                        .get();
+                try {
+                    Transition matchingTransition = transitions.stream()
+                            .filter(t -> incomingMatch(t.prefix()).equals(removedMatch))
+                            .findFirst()
+                            .get();
 
+                    // Install flow for new assignment
+                    for (Assignment assignment : matchingTransition.getTo()) {
+                        installPermanentRule(assignment);
+                    }
 
-                // Install flow for new assignment
-                for (Assignment assignment : matchingTransition.getTo()) {
-                    installPermanentRule(assignment);
+                    // Remove transition
+                    transitions.remove(matchingTransition);
+                } catch (NullPointerException e) {
+                    // No such transition. This happens when a switch comes online that was
+                    // in the process of transitioning some prefixes
                 }
-
-                // Remove transition
-                transitions.remove(matchingTransition);
                 break;
         }
         return Command.CONTINUE;
@@ -161,14 +165,7 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
 
         Match incomingMatch = incomingMatch(prefix);
 
-        ArrayList<OFAction> incomingActionList = new ArrayList<>();
-        incomingActionList.add(actions.setDlSrc(MacAddress.of("00:00:0a:00:00:64"))); // 10.0.0.100 equiv. MAC
-        incomingActionList.add(actions.setDlDst(MacAddress.of(String.format("00:00:0a:00:00:%02x", server + 1)))); // 10.0.0.x equiv. MAC
-        incomingActionList.add(actions.setNwDst(IPv4Address.of(String.format("10.0.0.%d", server + 1)))); // 10.0.0.x
-        incomingActionList.add(actions.buildOutput()
-                .setPort(OFPort.of(config.getServers().get(server).portNumber))
-                .setMaxLen(0xFFffFFff)
-                .build());
+        List<OFAction> incomingActionList = incomingActionList(server);
 
         OFFlowAdd incomingFlowAdd = factory.buildFlowAdd()
                 .setMatch(incomingMatch)
@@ -226,6 +223,7 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
 
         // Init state
         assignmentTree = ServerLoadBalancerUtil.generateAssignmentTreeOptimal(config);
+        logger.info("startup complete");
     }
 
     private void updateWeights(List<Double> weights) {
@@ -292,16 +290,37 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
         }
     }
 
+    private List<OFAction> incomingActionList(int server) {
+        OFFactory factory = mySwitch.getOFFactory();
+        OFActions actions = factory.actions();
+
+        if (server >= 0) {
+            ArrayList<OFAction> incomingActionList = new ArrayList<>();
+            incomingActionList.add(actions.setDlSrc(MacAddress.of("00:00:0a:00:00:64"))); // 10.0.0.100 equiv. MAC
+            incomingActionList.add(actions.setDlDst(MacAddress.of(String.format("00:00:0a:00:00:%02x", server + 1)))); // 10.0.0.x equiv. MAC
+            incomingActionList.add(actions.setNwDst(IPv4Address.of(String.format("10.0.0.%d", server + 1)))); // 10.0.0.x
+            incomingActionList.add(actions.buildOutput()
+                    .setPort(OFPort.of(config.getServers().get(server).portNumber))
+                    .setMaxLen(0xFFffFFff)
+                    .build());
+            return incomingActionList;
+        } else {
+            return Collections.emptyList();
+        }
+    }
+
     @Override
     public void switchAdded(DatapathId switchId) {
         mySwitch = switchManager.getSwitch(switchId);
         OFFactory factory = mySwitch.getOFFactory();
         OFActions actions = factory.actions();
 
+        // Delete all rules previously on this switch
+        // TODO don't reset, continue where we left off
+        mySwitch.write(factory.buildFlowDelete().build());
+
         // Handle incoming traffic
-        for (Assignment assignment : assignmentTree.assignments()) {
-            installPermanentRule(assignment);
-        }
+        assignmentTree.assignments().forEach(this::installPermanentRule);
 
         // Handle outgoing traffic
         Match outgoingMatch = factory.buildMatch()
