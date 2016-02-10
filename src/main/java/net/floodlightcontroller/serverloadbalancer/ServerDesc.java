@@ -3,14 +3,31 @@ package net.floodlightcontroller.serverloadbalancer;
 import org.projectfloodlight.openflow.types.IPv4Address;
 import org.projectfloodlight.openflow.types.MacAddress;
 
-public class ServerDesc {
-    public int portNumber;
-    public IPv4Address nwAddress;
-    public MacAddress dlAddress;
+public class ServerDesc extends LoadBalanceTarget {
+    private IPv4Address nwAddress;
+    private MacAddress dlAddress;
 
-    public ServerDesc(int portNumber, IPv4Address nwAddress, MacAddress dlAddress) {
-        this.portNumber = portNumber;
+    public ServerDesc(IPv4Address nwAddress, MacAddress dlAddress) {
+        super();
         this.nwAddress = nwAddress;
         this.dlAddress = dlAddress;
+    }
+
+    public IPv4Address getNwAddress() {
+        return nwAddress;
+    }
+
+    public ServerDesc setNwAddress(IPv4Address nwAddress) {
+        this.nwAddress = nwAddress;
+        return this;
+    }
+
+    public MacAddress getDlAddress() {
+        return dlAddress;
+    }
+
+    public ServerDesc setDlAddress(MacAddress dlAddress) {
+        this.dlAddress = dlAddress;
+        return this;
     }
 }

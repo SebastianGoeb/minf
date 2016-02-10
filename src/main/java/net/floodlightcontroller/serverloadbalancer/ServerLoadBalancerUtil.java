@@ -29,7 +29,7 @@ public class ServerLoadBalancerUtil {
 
         // Scale and round weights to add up to maxPrefixLength * 7/8
         List<Integer> normalizedWeights = normalize(config.getWeights(), (1 << config.getMaxPrefixLength()) / 8 * 7);
-        
+
         // Translate weights into subnet masks that can be assigned to prefixes
         SortedMap<IPv4Address, List<Integer>> masks = new TreeMap<>();
         for (int server = 0; server < normalizedWeights.size(); server++) {

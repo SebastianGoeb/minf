@@ -9,6 +9,7 @@ import net.floodlightcontroller.core.module.IFloodlightService;
 import net.floodlightcontroller.packet.Ethernet;
 import net.floodlightcontroller.packet.IPv4;
 import net.floodlightcontroller.packet.TCP;
+import net.floodlightcontroller.threadpool.IThreadPoolService;
 import org.projectfloodlight.openflow.protocol.*;
 import org.projectfloodlight.openflow.protocol.action.OFAction;
 import org.projectfloodlight.openflow.protocol.action.OFActions;
@@ -19,6 +20,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener, IOFSwitchListener {
 
@@ -32,8 +36,10 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
 
     protected static Logger logger;
     protected IFloodlightProviderService floodlightProvider;
+    protected IThreadPoolService threadPoolService;
     protected IOFSwitchService switchManager;
     private IOFSwitch mySwitch;
+    private ScheduledFuture<?> loadStatsFuture;
 
     // Configuration
     private Config config;
@@ -116,7 +122,7 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
 
                     // Remove transition
                     transitions.remove(matchingTransition);
-                } catch (NullPointerException e) {
+                } catch (NoSuchElementException e) {
                     // No such transition. This happens when a switch comes online that was
                     // in the process of transitioning some prefixes
                 }
@@ -128,23 +134,24 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
     private void handleTCP(IPv4 ipv4, TCP tcp) {
     }
 
-    private void installMicroflowRule(IPv4Address src, int server) {
+    private void installMicroflowRule(IPv4Address src, int serverNum) {
+//        ServerDesc server = config.getServers().get(serverNum);
         OFFactory factory = mySwitch.getOFFactory();
-        OFActions actions = factory.actions();
+//        OFActions actions = factory.actions();
         Match incomingMatch = factory.buildMatch()
                 .setExact(MatchField.ETH_TYPE, EthType.IPv4)
                 .setExact(MatchField.IPV4_SRC, src)
                 .setExact(MatchField.IPV4_DST, IPv4Address.of("1.1.1.1"))
                 .build();
 
-        ArrayList<OFAction> incomingActionList = new ArrayList<>();
-        incomingActionList.add(actions.setDlSrc(MacAddress.of("00:00:0a:00:00:64"))); // 10.0.0.100 equiv. MAC
-        incomingActionList.add(actions.setDlDst(MacAddress.of(String.format("00:00:0a:00:00:%02x", server + 1)))); // 10.0.0.x equiv. MAC
-        incomingActionList.add(actions.setNwDst(IPv4Address.of(String.format("10.0.0.%d", server + 1)))); // 10.0.0.x
-        incomingActionList.add(actions.buildOutput()
-                .setPort(OFPort.of(config.getServers().get(server).portNumber))
-                .setMaxLen(0xFFffFFff)
-                .build());
+        List<OFAction> incomingActionList = incomingActionList(serverNum);
+//        incomingActionList.add(actions.setDlSrc(MacAddress.of("00:00:0a:00:00:64"))); // 10.0.0.100 equiv. MAC
+//        incomingActionList.add(actions.setDlDst(server.getDlAddress()));
+//        incomingActionList.add(actions.setNwDst(server.getNwAddress()));
+//        incomingActionList.add(actions.buildOutput()
+//                .setPort(OFPort.of(config.getCoreSwitch().getLoadBalanceTargets().get(server)))
+//                .setMaxLen(0xFFffFFff)
+//                .build());
 
         OFFlowAdd incomingFlowAdd = factory.buildFlowAdd()
                 .setMatch(incomingMatch)
@@ -158,7 +165,7 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
 
     private void installPermanentRule(Assignment assignment) {
         OFFactory factory = mySwitch.getOFFactory();
-        OFActions actions = factory.actions();
+//        OFActions actions = factory.actions();
 
         IPv4AddressWithMask prefix = assignment.getPrefix();
         int server = assignment.getServer();
@@ -192,37 +199,48 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
     public Collection<Class<? extends IFloodlightService>> getModuleDependencies() {
         Collection<Class<? extends IFloodlightService>> list = new ArrayList<>();
         list.add(IFloodlightProviderService.class);
+        list.add(IThreadPoolService.class);
         return list;
     }
 
     @Override
     public void init(FloodlightModuleContext context) throws FloodlightModuleException {
         logger = LoggerFactory.getLogger(ServerLoadBalancer.class);
-        logger.info("Init");
     }
 
     @Override
     public void startUp(FloodlightModuleContext context) throws FloodlightModuleException {
-        floodlightProvider = context.getServiceImpl(IFloodlightProviderService.class);
-        floodlightProvider.addOFMessageListener(OFType.PACKET_IN, this);
-        floodlightProvider.addOFMessageListener(OFType.FLOW_REMOVED, this);
-        switchManager = context.getServiceImpl(IOFSwitchService.class);
-        switchManager.addOFSwitchListener(this);
-
         // Init configuration
         // TODO move?
         config = new Config()
-//                .setWeights(Arrays.asList(3d, 1d, 4d))
                 .setWeights(Arrays.asList(1d, 0d))
                 .setMaxPrefixLength(3)
-                .setServers(new ArrayList<ServerDesc>(Arrays.asList(
-                        new ServerDesc(2, IPv4Address.of("10.0.0.1"), MacAddress.of("00:00:0A:00:00:01"))
-                        , new ServerDesc(3, IPv4Address.of("10.0.0.2"), MacAddress.of("00:00:0A:00:00:02"))
-//                        ,new ServerDesc(4, IPv4Address.of("10.0.0.3"), MacAddress.of("00:00:0A:00:00:03"))
-                )));
+                .setCoreSwitch(new SwitchDesc())
+                .addServer(new ServerDesc(IPv4Address.of("10.0.0.1"), MacAddress.of("00:00:0A:00:00:01")), 2)
+                .addServer(new ServerDesc(IPv4Address.of("10.0.0.2"), MacAddress.of("00:00:0A:00:00:02")), 3)
+                .setLoadStatsInterval(1);
+
+        // Floodlight Provice Service
+        floodlightProvider = context.getServiceImpl(IFloodlightProviderService.class);
+        floodlightProvider.addOFMessageListener(OFType.PACKET_IN, this);
+        floodlightProvider.addOFMessageListener(OFType.FLOW_REMOVED, this);
+
+        // Switch Service
+        switchManager = context.getServiceImpl(IOFSwitchService.class);
+        switchManager.addOFSwitchListener(this);
+
+        // Thread Pool Service
+        threadPoolService = context.getServiceImpl(IThreadPoolService.class);
+        loadStatsFuture = threadPoolService.getScheduledExecutor().scheduleAtFixedRate(
+                new LoadStatsCollector(),
+                config.getLoadStatsInterval(),
+                config.getLoadStatsInterval(),
+                TimeUnit.SECONDS);
 
         // Init state
         assignmentTree = ServerLoadBalancerUtil.generateAssignmentTreeOptimal(config);
+        transitions = new ArrayList<>();
+
         logger.info("startup complete");
     }
 
@@ -231,9 +249,9 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
         AssignmentTree nextAssignmentTree = ServerLoadBalancerUtil.generateAssignmentTreeOptimal(config);
         transitions = ServerLoadBalancerUtil.generateTransitions(assignmentTree, nextAssignmentTree);
 
-        for (Transition transition : transitions) {
-            startTransition(transition);
-        }
+        // TODO refactor to remember both and switch when all transitions complete or reset
+        assignmentTree = nextAssignmentTree;
+        transitions.forEach(this::startTransition);
     }
 
     private void startTransition(Transition transition) {
@@ -290,17 +308,18 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
         }
     }
 
-    private List<OFAction> incomingActionList(int server) {
+    private List<OFAction> incomingActionList(int serverNum) {
         OFFactory factory = mySwitch.getOFFactory();
         OFActions actions = factory.actions();
 
-        if (server >= 0) {
+        if (serverNum >= 0) {
+            ServerDesc server = config.getServers().get(serverNum);
             ArrayList<OFAction> incomingActionList = new ArrayList<>();
             incomingActionList.add(actions.setDlSrc(MacAddress.of("00:00:0a:00:00:64"))); // 10.0.0.100 equiv. MAC
-            incomingActionList.add(actions.setDlDst(MacAddress.of(String.format("00:00:0a:00:00:%02x", server + 1)))); // 10.0.0.x equiv. MAC
-            incomingActionList.add(actions.setNwDst(IPv4Address.of(String.format("10.0.0.%d", server + 1)))); // 10.0.0.x
+            incomingActionList.add(actions.setDlDst(server.getDlAddress()));
+            incomingActionList.add(actions.setNwDst(server.getNwAddress()));
             incomingActionList.add(actions.buildOutput()
-                    .setPort(OFPort.of(config.getServers().get(server).portNumber))
+                    .setPort(OFPort.of(config.getCoreSwitch().getLoadBalanceTargets().get(server)))
                     .setMaxLen(0xFFffFFff)
                     .build());
             return incomingActionList;
@@ -344,13 +363,16 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
         mySwitch.write(outgoingFlowAdd);
 
         // TODO remove
-        updateWeights(Arrays.asList(1d, 1d));
+//        updateWeights(Arrays.asList(1d, 1d));
     }
 
     @Override
     public void switchRemoved(DatapathId switchId) {
-        // TODO Auto-generated method stub
-
+        // Forget switch and reset transition information
+        if (mySwitch.getId().equals(switchId)) {
+            mySwitch = null;
+            transitions.clear();
+        }
     }
 
     @Override
@@ -369,5 +391,28 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
     public void switchChanged(DatapathId switchId) {
         // TODO Auto-generated method stub
 
+    }
+
+    class LoadStatsCollector implements Runnable {
+
+        @Override
+        public void run() {
+            OFFactory factory = mySwitch.getOFFactory();
+
+            OFFlowStatsRequest request = factory.buildFlowStatsRequest()
+                    .build();
+            try {
+                List<OFFlowStatsReply> replies = mySwitch.writeStatsRequest(request).get();
+                for (OFFlowStatsReply reply : replies) {
+                    for (OFFlowStatsEntry entry : reply.getEntries()) {
+                        logger.info(String.format("%s, %s", entry.getActions(), entry.getByteCount()));
+                    }
+                }
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            } catch (ExecutionException e) {
+                e.printStackTrace();
+            }
+        }
     }
 }
