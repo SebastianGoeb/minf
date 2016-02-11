@@ -12,6 +12,7 @@ import net.floodlightcontroller.packet.TCP;
 import net.floodlightcontroller.threadpool.IThreadPoolService;
 import org.projectfloodlight.openflow.protocol.*;
 import org.projectfloodlight.openflow.protocol.action.OFAction;
+import org.projectfloodlight.openflow.protocol.action.OFActionOutput;
 import org.projectfloodlight.openflow.protocol.action.OFActions;
 import org.projectfloodlight.openflow.protocol.match.Match;
 import org.projectfloodlight.openflow.protocol.match.MatchField;
@@ -213,7 +214,7 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
         // Init configuration
         // TODO move?
         config = new Config()
-                .setWeights(Arrays.asList(1d, 0d))
+                .setWeights(Arrays.asList(1d, 1d))
                 .setMaxPrefixLength(3)
                 .setCoreSwitch(new SwitchDesc())
                 .addServer(new ServerDesc(IPv4Address.of("10.0.0.1"), MacAddress.of("00:00:0A:00:00:01")), 2)
@@ -395,17 +396,49 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
 
     class LoadStatsCollector implements Runnable {
 
+        private LinkedHashMap<ServerDesc, Long> prevLoad = new LinkedHashMap<>();
+
+        public LoadStatsCollector() {
+            for (ServerDesc server : config.getServers()) {
+                prevLoad.put(server, 0L);
+            }
+        }
+
         @Override
         public void run() {
             OFFactory factory = mySwitch.getOFFactory();
 
-            OFFlowStatsRequest request = factory.buildFlowStatsRequest()
-                    .build();
+            OFFlowStatsRequest request = factory.buildFlowStatsRequest().build();
+
+            LinkedHashMap<ServerDesc, Long> load = new LinkedHashMap<>();
+            for (ServerDesc server : config.getServers()) {
+                load.put(server, 0L);
+            }
+
             try {
                 List<OFFlowStatsReply> replies = mySwitch.writeStatsRequest(request).get();
                 for (OFFlowStatsReply reply : replies) {
                     for (OFFlowStatsEntry entry : reply.getEntries()) {
-                        logger.info(String.format("%s, %s", entry.getActions(), entry.getByteCount()));
+                        try {
+                            // Output action of this flow
+                            OFActionOutput output = (OFActionOutput) entry.getActions().stream()
+                                    .filter(x -> x instanceof OFActionOutput)
+                                    .findFirst()
+                                    .get();
+
+                            // Server connected to this port
+                            int portNumber = output.getPort().getPortNumber();
+                            ServerDesc server = (ServerDesc) config.getCoreSwitch().getLoadBalanceTargets().entrySet().stream()
+                                    .filter(x -> x.getValue() == portNumber)
+                                    .findFirst()
+                                    .get()
+                                    .getKey();
+
+                            // Record load
+                            load.put(server, load.get(server) + entry.getByteCount().getValue());
+                        } catch (NoSuchElementException e) {
+                            // Dropped packet
+                        }
                     }
                 }
             } catch (InterruptedException e) {
@@ -413,6 +446,14 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
             } catch (ExecutionException e) {
                 e.printStackTrace();
             }
+
+            for (ServerDesc server : load.keySet()) {
+                long number = load.get(server) - prevLoad.get(server);
+                logger.info(String.format("%s %d Mbits/s", server.getNwAddress(), number / 1024 / 1024));
+            }
+
+            // Update state
+            prevLoad = load;
         }
     }
 }
