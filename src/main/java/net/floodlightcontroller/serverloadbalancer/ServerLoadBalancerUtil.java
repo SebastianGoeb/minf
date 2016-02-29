@@ -1,17 +1,9 @@
 package net.floodlightcontroller.serverloadbalancer;
 
-import net.floodlightcontroller.core.IOFSwitch;
-import org.projectfloodlight.openflow.protocol.OFFactory;
-import org.projectfloodlight.openflow.protocol.match.Match;
-import org.projectfloodlight.openflow.protocol.match.MatchField;
-import org.projectfloodlight.openflow.types.EthType;
 import org.projectfloodlight.openflow.types.IPv4Address;
 import org.projectfloodlight.openflow.types.IPv4AddressWithMask;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.SortedMap;
-import java.util.TreeMap;
+import java.util.*;
 
 public class ServerLoadBalancerUtil {
 
@@ -30,7 +22,7 @@ public class ServerLoadBalancerUtil {
         // Scale and round weights to add up to maxPrefixLength * 7/8
         List<Integer> normalizedWeights = normalize(config.getWeights(), (1 << config.getMaxPrefixLength()) / 8 * 7);
 
-        // Translate weights into subnet masks that can be assigned to prefixes
+        // Translate weights into subnet masks that can be assigned to prefixes, servers grouped and sorted by mask
         SortedMap<IPv4Address, List<Integer>> masks = new TreeMap<>();
         for (int server = 0; server < normalizedWeights.size(); server++) {
             for (int i = 0; i <= config.getMaxPrefixLength(); i++) {
@@ -49,6 +41,73 @@ public class ServerLoadBalancerUtil {
         assignmentTree.assignMasks(masks);
 
         return assignmentTree;
+    }
+
+    public static AssignmentTree generateAssignmentTreeFewerTransitions(Config config, AssignmentTree oldTree) {
+        AssignmentTree newTree = AssignmentTree.balancedTree(config.getMaxPrefixLength());
+
+        // Drop multicast and RFC6890 prefixes ( 224.0.0.0/4 + 240.0.0.0/4 = 224.0.0.0/3 )
+        IPv4AddressWithMask unused = IPv4AddressWithMask.of("224.0.0.0/3");
+        newTree.assignPrefix(unused, -1);
+
+        // Scale and round weights to add up to maxPrefixLength * 7/8
+        List<Integer> normalizedWeights = normalize(config.getWeights(), (1 << config.getMaxPrefixLength()) / 8 * 7);
+
+        // Translate weights into subnet masks that can be assigned to prefixes, servers grouped and sorted by mask
+        SortedMap<IPv4Address, List<Integer>> masks = new TreeMap<>();
+        for (int server = 0; server < normalizedWeights.size(); server++) {
+            for (int i = 0; i <= config.getMaxPrefixLength(); i++) {
+                if ((normalizedWeights.get(server) & (1 << i)) != 0) {
+                    IPv4Address mask = IPv4Address.ofCidrMaskLength((config.getMaxPrefixLength() - i));
+                    if (!masks.containsKey(mask)) {
+                        masks.put(mask, new ArrayList<>());
+                    }
+                    masks.get(mask).add(server);
+                }
+            }
+        }
+
+        // Pre-assign shared assignments
+        List<Assignment> oldAssignments = oldTree.assignments();
+        for (Assignment assignment : oldAssignments) {
+            IPv4AddressWithMask prefix = assignment.getPrefix();
+            IPv4Address mask = assignment.getPrefix().getMask();
+            Integer server = assignment.getServer();
+
+            if (masks.containsKey(mask) && masks.get(mask).contains(server)) {
+                // This assignment is already present, so pre-assign it and remove it from masks
+                newTree.assignPrefix(prefix, server);
+                masks.get(mask).remove(server);
+            }
+        }
+
+        // Assign all remaining prefixes (and those kicked back out in the process)
+        for (Map.Entry<IPv4Address, List<Integer>> masksEntry : masks.entrySet()) {
+            IPv4Address mask = masksEntry.getKey();
+            List<Integer> servers = masksEntry.getValue();
+
+            for (Integer server : servers) {
+                // Find least-cost assignment in new tree
+                AssignmentTree leastCostSubtree = newTree.leastAssignedSubtree(mask);
+                List<Assignment> clearedAssignments = leastCostSubtree.clear();
+
+                // Clear out previous assignments to make room for new assignment, but add them back to masks/server list
+                for (Assignment assignment : clearedAssignments) {
+                    IPv4Address clearedMask = assignment.getPrefix().getMask();
+                    Integer clearedServer = assignment.getServer();
+                    if (!masks.containsKey(clearedMask)) {
+                        masks.put(clearedMask, new ArrayList<>());
+                    }
+                    masks.get(clearedMask).add(clearedServer);
+                    // TODO is this necessary?
+                    // masks.get(clearedMask).sort(Comparator.naturalOrder());
+                }
+
+                newTree.assignPrefix(leastCostSubtree.prefix, server);
+            }
+        }
+
+        return newTree;
     }
 
     /**

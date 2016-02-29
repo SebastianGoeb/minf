@@ -130,4 +130,58 @@ public class AssignmentTree {
 
         return prefixes;
     }
+
+    /**
+     * Given a mask, finds the matching subtree that has the least amount of IP space assigned to it
+     * @param mask      The mask of the subtree we are searching for
+     * @return          The subtree that has the least amount of IP space assigned to it
+     */
+    public AssignmentTree leastAssignedSubtree(IPv4Address mask) {
+        if (prefix.getMask().compareTo(mask) == 0) {
+            // We are at the same size prefix as specified
+            // If prefix doesn't contain 224.0.0.0/3 (Multicast + RFC6890)
+            if (!(prefix.contains(IPv4Address.of("224.0.0.0")) && prefix.getMask().compareTo(IPv4Address.ofCidrMaskLength(3)) <= 0)) {
+                return this;
+            }
+        } else if (prefix.getMask().compareTo(mask) < 0) {
+            // We are at a larger prefix than specified
+
+            if (server != null) {
+                // This subtree already has an assignment, so it and its subtrees will be completely assigned and thus not considered
+                return null;
+            }
+
+            AssignmentTree leftTree = children[0].leastAssignedSubtree(mask);
+            AssignmentTree rightTree = children[1].leastAssignedSubtree(mask);
+            if (leftTree == null && rightTree == null) {
+                return null;
+            } else if (leftTree == null) {
+                return rightTree;
+            } else if (rightTree == null) {
+                return leftTree;
+            } else if (leftTree.assignedAddresses() <= rightTree.assignedAddresses()) {
+                return leftTree;
+            } else {
+                return rightTree;
+            }
+        } else {
+            // We are at a smaller prefix than specified, which shouldn't happen
+            throw new IllegalStateException("Somehow we were iterating down the tree and skipped a level.");
+        }
+        return null;
+    }
+
+    public List<Assignment> clear() {
+        List<Assignment> clearedAssignments = new ArrayList<>();
+
+        if (server != null) {
+            clearedAssignments.add(new Assignment(prefix, server));
+            server = null;
+        } else if (children != null) {
+            clearedAssignments.addAll(children[0].clear());
+            clearedAssignments.addAll(children[1].clear());
+        }
+
+        return clearedAssignments;
+    }
 }

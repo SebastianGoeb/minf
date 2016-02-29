@@ -5,15 +5,15 @@ import org.junit.Before;
 import org.junit.Test;
 import org.projectfloodlight.openflow.types.IPv4Address;
 import org.projectfloodlight.openflow.types.IPv4AddressWithMask;
+import org.projectfloodlight.openflow.types.MacAddress;
 
+import javax.smartcardio.ATR;
 import java.util.*;
 
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.core.Is.is;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.*;
 
 public class ServerLoadBalancerUtilTest {
 
@@ -161,5 +161,37 @@ public class ServerLoadBalancerUtilTest {
         assertThat(transitions.get(2).getTo().size(), is(1));
         assertThat(transitions.get(2).getTo(), contains(
                 new Assignment(IPv4AddressWithMask.of("192.0.0.0/2"), 8)));
+    }
+
+    @Test
+    public void testGenerateAssignmentTreeFewerTransitions() throws Exception {
+        AssignmentTree oldTree = AssignmentTree.balancedTree(3);
+        oldTree.assignPrefix(IPv4AddressWithMask.of("0.0.0.0/2"), 1);
+        oldTree.assignPrefix(IPv4AddressWithMask.of("64.0.0.0/2"), 2);
+        oldTree.assignPrefix(IPv4AddressWithMask.of("128.0.0.0/2"), -1);
+        oldTree.assignPrefix(IPv4AddressWithMask.of("192.0.0.0/3"), 2);
+        oldTree.assignPrefix(IPv4AddressWithMask.of("224.0.0.0/3"), -1);
+
+        Config config = new Config()
+                .setWeights(Arrays.asList(4d, 3d))
+                .setMaxPrefixLength(3)
+                .setCoreSwitch(new SwitchDesc())
+                .addServer(new ServerDesc(IPv4Address.of("10.0.0.1"), MacAddress.of("00:00:0A:00:00:01")), 2)
+                .addServer(new ServerDesc(IPv4Address.of("10.0.0.2"), MacAddress.of("00:00:0A:00:00:02")), 3);
+        AssignmentTree newTree = ServerLoadBalancerUtil.generateAssignmentTreeFewerTransitions(config, oldTree);
+
+        assertThat(newTree.children[0].server, is(0));
+        assertThat(newTree.children[1].children[0].server, is(1));
+        assertThat(newTree.children[1].children[1].children[0].server, is(1));
+        assertThat(newTree.children[1].children[1].children[1].server, is(-1));
+
+
+        config.setWeights(Arrays.asList(3d, 4d));
+        newTree = ServerLoadBalancerUtil.generateAssignmentTreeFewerTransitions(config, oldTree);
+
+        assertThat(newTree.children[0].server, is(1));
+        assertThat(newTree.children[1].children[0].server, is(0));
+        assertThat(newTree.children[1].children[1].children[0].server, is(0));
+        assertThat(newTree.children[1].children[1].children[1].server, is(-1));
     }
 }
