@@ -1,5 +1,6 @@
 package net.floodlightcontroller.serverloadbalancer;
 
+import org.projectfloodlight.openflow.protocol.match.Match;
 import org.projectfloodlight.openflow.types.IPv4AddressWithMask;
 
 import java.util.*;
@@ -7,10 +8,14 @@ import java.util.*;
 public class Transition {
     List<Assignment> from;
     List<Assignment> to;
+    List<Match> transitionMatches;
+    List<Match> microflowMatches;
 
     public Transition(List<Assignment> from, List<Assignment> to) {
         this.from = from;
         this.to = to;
+        transitionMatches = new ArrayList<>();
+        microflowMatches = new ArrayList<>();
     }
 
     // Factories
@@ -47,6 +52,14 @@ public class Transition {
 
     public List<Assignment> getTo() {
         return to;
+    }
+
+    public List<Match> getTransitionMatches() {
+        return transitionMatches;
+    }
+
+    public List<Match> getMicroflowMatches() {
+        return microflowMatches;
     }
 
     public boolean isDirect() {

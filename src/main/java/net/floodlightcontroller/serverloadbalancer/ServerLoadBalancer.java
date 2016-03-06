@@ -9,6 +9,8 @@ import net.floodlightcontroller.core.module.IFloodlightService;
 import net.floodlightcontroller.packet.Ethernet;
 import net.floodlightcontroller.packet.IPv4;
 import net.floodlightcontroller.packet.TCP;
+import net.floodlightcontroller.restserver.IRestApiService;
+import net.floodlightcontroller.serverloadbalancer.web.ServerLoadBalancerWebRoutable;
 import net.floodlightcontroller.threadpool.IThreadPoolService;
 import org.projectfloodlight.openflow.protocol.*;
 import org.projectfloodlight.openflow.protocol.action.OFAction;
@@ -23,12 +25,10 @@ import org.slf4j.LoggerFactory;
 import java.util.*;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
 
-public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener, IOFSwitchListener {
+public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener, IOFSwitchListener, IServerLoadBalancerService {
 
     private static final short TCP_SYN = 0x2;
-    private static final short TCP_ACK = 0x10;
 
     private static final int MICROFLOW_PRIORITY = 800;
     private static final int TRANSITION_PRIORITY = 700;
@@ -39,15 +39,17 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
     protected IFloodlightProviderService floodlightProvider;
     protected IThreadPoolService threadPoolService;
     protected IOFSwitchService switchManager;
-    private IOFSwitch mySwitch;
+    protected IRestApiService restApiService;
+    private List<DatapathId> dpids;
+    private Map<DatapathId, List<Transition>> transitions;
     private ScheduledFuture<?> loadStatsFuture;
+    private Map<Integer, Server> servers;
 
     // Configuration
     private Config config;
 
     // State
     private AssignmentTree assignmentTree;
-    private List<Transition> transitions;
 
     @Override
     public String getName() {
@@ -66,8 +68,80 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
         return false;
     }
 
+    // Module methods
+    @Override
+    public Collection<Class<? extends IFloodlightService>> getModuleServices() {
+        Collection<Class<? extends IFloodlightService>> l =
+                new ArrayList<>();
+        l.add(IServerLoadBalancerService.class);
+        return l;
+    }
+
+    @Override
+    public Map<Class<? extends IFloodlightService>, IFloodlightService> getServiceImpls() {
+        Map<Class<? extends IFloodlightService>,
+                IFloodlightService> m =
+                new HashMap<>();
+        m.put(IServerLoadBalancerService.class, this);
+        return m;
+    }
+
+    @Override
+    public Collection<Class<? extends IFloodlightService>> getModuleDependencies() {
+        Collection<Class<? extends IFloodlightService>> list = new ArrayList<>();
+        list.add(IFloodlightProviderService.class);
+        list.add(IThreadPoolService.class);
+        list.add(IRestApiService.class);
+        return list;
+    }
+
+    // Init/Startup methods
+    @Override
+    public void init(FloodlightModuleContext context) throws FloodlightModuleException {
+        logger = LoggerFactory.getLogger(ServerLoadBalancer.class);
+        floodlightProvider = context.getServiceImpl(IFloodlightProviderService.class);
+        threadPoolService = context.getServiceImpl(IThreadPoolService.class);
+        switchManager = context.getServiceImpl(IOFSwitchService.class);
+        restApiService = context.getServiceImpl(IRestApiService.class);
+    }
+
+    @Override
+    public void startUp(FloodlightModuleContext context) throws FloodlightModuleException {
+        // Init configuration
+        // TODO move?
+        config = new Config()
+                .setMaxPrefixLength(3)
+                .setCoreSwitch(new SwitchDesc())
+                .setLoadStatsInterval(1);
+
+        // Floodlight Provice Service
+        floodlightProvider.addOFMessageListener(OFType.PACKET_IN, this);
+        floodlightProvider.addOFMessageListener(OFType.FLOW_REMOVED, this);
+
+        // Switch Service
+        switchManager.addOFSwitchListener(this);
+
+        // Thread Pool Service
+//        loadStatsFuture = threadPoolService.getScheduledExecutor().scheduleAtFixedRate(
+//                new LoadStatsCollector(),
+//                config.getLoadStatsInterval(),
+//                config.getLoadStatsInterval(),
+//                TimeUnit.SECONDS);
+
+        // Init state
+        assignmentTree = ServerLoadBalancerUtil.generateAssignmentTreeOptimal(config);
+        dpids = new ArrayList<>();
+        transitions = new HashMap<>();
+        servers = new HashMap<>();
+
+        // REST Service
+        restApiService.addRestletRoutable(new ServerLoadBalancerWebRoutable());
+    }
+
+    // Process incoming packets
     @Override
     public net.floodlightcontroller.core.IListener.Command receive(IOFSwitch sw, OFMessage msg, FloodlightContext cntx) {
+        DatapathId dpid = sw.getId();
         switch (msg.getType()) {
             case PACKET_IN:
                 Ethernet eth = IFloodlightProviderService.bcStore.get(cntx, IFloodlightProviderService.CONTEXT_PI_PAYLOAD);
@@ -80,7 +154,7 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
                         IPv4Address src = ipv4.getSourceAddress();
 
                         // Find transition where any old assignment matches source IP
-                        Transition matchingTransition = transitions.stream()
+                        Transition matchingTransition = transitions.get(dpid).stream()
                                 .filter(t -> t.getFrom().stream().anyMatch(a -> a.getPrefix().contains(src)))
                                 .findFirst()
                                 .get();
@@ -97,11 +171,12 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
                                 .findFirst()
                                 .get();
 
-                        // If SYN, direct to new server, if non-SYN direct to old server
                         if ((tcp.getFlags() & TCP_SYN) != 0) {
-                            installMicroflowRule(ipv4.getSourceAddress(), toAssignment.getServer());
+                            // If SYN, direct to new server
+                            installMicroflowRule(dpid, ipv4.getSourceAddress(), toAssignment.getServer());
                         } else {
-                            installMicroflowRule(ipv4.getSourceAddress(), fromAssignment.getServer());
+                            // If non-SYN direct to old server
+                            installMicroflowRule(dpid, ipv4.getSourceAddress(), fromAssignment.getServer());
                         }
                     }
                 }
@@ -109,159 +184,66 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
             case FLOW_REMOVED:
                 Match removedMatch = ((OFFlowRemoved) msg).getMatch();
 
-                // Find transition with overall prefix matching removed flow
-                try {
-                    Transition matchingTransition = transitions.stream()
-                            .filter(t -> incomingMatch(t.prefix()).equals(removedMatch))
+                Transition matchingTransition;
+
+                // Remove rule from transition
+                if (removedMatch.isExact(MatchField.IPV4_SRC)) {
+                    // Microflow rule
+                    matchingTransition = transitions.get(dpid).stream()
+                            .filter(t -> t.getMicroflowMatches().contains(removedMatch))
                             .findFirst()
                             .get();
 
-                    // Install flow for new assignment
-                    for (Assignment assignment : matchingTransition.getTo()) {
-                        installPermanentRule(assignment);
-                    }
+                    matchingTransition.getMicroflowMatches().remove(removedMatch);
 
-                    // Remove transition
-                    transitions.remove(matchingTransition);
-                } catch (NoSuchElementException e) {
-                    // No such transition. This happens when a switch comes online that was
-                    // in the process of transitioning some prefixes
+                } else {
+                    // Transition rule
+                    matchingTransition = transitions.get(dpid).stream()
+                            .filter(t -> t.getTransitionMatches().contains(removedMatch))
+                            .findFirst()
+                            .get();
+
+                    matchingTransition.getTransitionMatches().remove(removedMatch);
+                }
+
+                // If transition is complete, install new permanent rules
+                if (matchingTransition.getTransitionMatches().isEmpty()) {
+                    for (Assignment assignment : matchingTransition.getTo()) {
+                        installPermanentRule(dpid, assignment);
+                    }
+                }
+
+                // When last microflow rule expires, remove transition
+                if (matchingTransition.getMicroflowMatches().isEmpty()) {
+                    transitions.get(dpid).remove(matchingTransition);
                 }
                 break;
         }
         return Command.CONTINUE;
     }
 
-    private void handleTCP(IPv4 ipv4, TCP tcp) {
-    }
-
-    private void installMicroflowRule(IPv4Address src, int serverNum) {
-//        ServerDesc server = config.getServers().get(serverNum);
-        OFFactory factory = mySwitch.getOFFactory();
-//        OFActions actions = factory.actions();
-        Match incomingMatch = factory.buildMatch()
-                .setExact(MatchField.ETH_TYPE, EthType.IPv4)
-                .setExact(MatchField.IPV4_SRC, src)
-                .setExact(MatchField.IPV4_DST, IPv4Address.of("1.1.1.1"))
-                .build();
-
-        List<OFAction> incomingActionList = incomingActionList(serverNum);
-//        incomingActionList.add(actions.setDlSrc(MacAddress.of("00:00:0a:00:00:64"))); // 10.0.0.100 equiv. MAC
-//        incomingActionList.add(actions.setDlDst(server.getDlAddress()));
-//        incomingActionList.add(actions.setNwDst(server.getNwAddress()));
-//        incomingActionList.add(actions.buildOutput()
-//                .setPort(OFPort.of(config.getCoreSwitch().getLoadBalanceTargets().get(server)))
-//                .setMaxLen(0xFFffFFff)
-//                .build());
-
-        OFFlowAdd incomingFlowAdd = factory.buildFlowAdd()
-                .setMatch(incomingMatch)
-                .setActions(incomingActionList)
-                .setPriority(MICROFLOW_PRIORITY)
-                .setIdleTimeout(60)
-                .build();
-
-        mySwitch.write(incomingFlowAdd);
-    }
-
-    private void installPermanentRule(Assignment assignment) {
-        OFFactory factory = mySwitch.getOFFactory();
-//        OFActions actions = factory.actions();
-
-        IPv4AddressWithMask prefix = assignment.getPrefix();
-        int server = assignment.getServer();
-
-        Match incomingMatch = incomingMatch(prefix);
-
-        List<OFAction> incomingActionList = incomingActionList(server);
-
-        OFFlowAdd incomingFlowAdd = factory.buildFlowAdd()
-                .setMatch(incomingMatch)
-                .setActions(incomingActionList)
-                .setPriority(IN_PRIORITY)
-                .build();
-
-        mySwitch.write(incomingFlowAdd);
-    }
-
-    @Override
-    public Collection<Class<? extends IFloodlightService>> getModuleServices() {
-        // TODO Auto-generated method stub
-        return null;
-    }
-
-    @Override
-    public Map<Class<? extends IFloodlightService>, IFloodlightService> getServiceImpls() {
-        // TODO Auto-generated method stub
-        return null;
-    }
-
-    @Override
-    public Collection<Class<? extends IFloodlightService>> getModuleDependencies() {
-        Collection<Class<? extends IFloodlightService>> list = new ArrayList<>();
-        list.add(IFloodlightProviderService.class);
-        list.add(IThreadPoolService.class);
-        return list;
-    }
-
-    @Override
-    public void init(FloodlightModuleContext context) throws FloodlightModuleException {
-        logger = LoggerFactory.getLogger(ServerLoadBalancer.class);
-    }
-
-    @Override
-    public void startUp(FloodlightModuleContext context) throws FloodlightModuleException {
-        // Init configuration
-        // TODO move?
-        config = new Config()
-                .setWeights(Arrays.asList(1d, 1d))
-                .setMaxPrefixLength(3)
-                .setCoreSwitch(new SwitchDesc())
-                .addServer(new ServerDesc(IPv4Address.of("10.0.0.1"), MacAddress.of("00:00:0A:00:00:01")), 2)
-                .addServer(new ServerDesc(IPv4Address.of("10.0.0.2"), MacAddress.of("00:00:0A:00:00:02")), 3)
-                .setLoadStatsInterval(1);
-
-        // Floodlight Provice Service
-        floodlightProvider = context.getServiceImpl(IFloodlightProviderService.class);
-        floodlightProvider.addOFMessageListener(OFType.PACKET_IN, this);
-        floodlightProvider.addOFMessageListener(OFType.FLOW_REMOVED, this);
-
-        // Switch Service
-        switchManager = context.getServiceImpl(IOFSwitchService.class);
-        switchManager.addOFSwitchListener(this);
-
-        // Thread Pool Service
-        threadPoolService = context.getServiceImpl(IThreadPoolService.class);
-        loadStatsFuture = threadPoolService.getScheduledExecutor().scheduleAtFixedRate(
-                new LoadStatsCollector(),
-                config.getLoadStatsInterval(),
-                config.getLoadStatsInterval(),
-                TimeUnit.SECONDS);
-
-        // Init state
-        assignmentTree = ServerLoadBalancerUtil.generateAssignmentTreeOptimal(config);
-        transitions = new ArrayList<>();
-
-        logger.info("startup complete");
-    }
-
+    // Transition helpers
     private void updateWeights(List<Double> weights) {
         config.setWeights(weights);
-        AssignmentTree nextAssignmentTree = ServerLoadBalancerUtil.generateAssignmentTreeOptimal(config);
-        transitions = ServerLoadBalancerUtil.generateTransitions(assignmentTree, nextAssignmentTree);
-
-        // TODO refactor to remember both and switch when all transitions complete or reset
+        AssignmentTree nextAssignmentTree = ServerLoadBalancerUtil.generateAssignmentTreeFewerTransitions(config, assignmentTree);
+        for (DatapathId dpid : dpids) {
+            List<Transition> transitionList = ServerLoadBalancerUtil.generateTransitions(assignmentTree, nextAssignmentTree);
+            transitions.put(dpid, transitionList);
+            for (Transition transition : transitionList) {
+                startTransition(dpid, transition);
+            }
+        }
         assignmentTree = nextAssignmentTree;
-        transitions.forEach(this::startTransition);
     }
 
-    private void startTransition(Transition transition) {
+    private void startTransition(DatapathId dpid, Transition transition) {
+        IOFSwitch mySwitch = switchManager.getSwitch(dpid);
         OFFactory factory = mySwitch.getOFFactory();
         OFActions actions = factory.actions();
 
         // Add new flow to controller
         IPv4AddressWithMask transitionPrefix = transition.prefix();
-        Match transitionMatch = incomingMatch(transitionPrefix);
+        Match transitionMatch = incomingMatch(dpid, transitionPrefix);
 
         ArrayList<OFAction> transitionActionList = new ArrayList<>();
         transitionActionList.add(actions.buildOutput()
@@ -281,7 +263,7 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
 
         // Remove old flows
         for (Assignment assignment : transition.getFrom()) {
-            Match incomingMatch = incomingMatch(assignment.getPrefix());
+            Match incomingMatch = incomingMatch(dpid, assignment.getPrefix());
 
             OFFlowDeleteStrict incomingFlowDeleteStrict = factory.buildFlowDeleteStrict()
                     .setMatch(incomingMatch)
@@ -292,7 +274,14 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
         }
     }
 
-    private Match incomingMatch(IPv4AddressWithMask prefix) {
+    @Override
+    public void requestTransition() {
+        // TODO implement and debounce/throttle
+    }
+
+    // Rule helpers
+    private Match incomingMatch(DatapathId dpid, IPv4AddressWithMask prefix) {
+        IOFSwitch mySwitch = switchManager.getSwitch(dpid);
         OFFactory factory = mySwitch.getOFFactory();
         if (prefix.getMask().getInt() == 0) {
             // If prefix mask is 0.0.0.0 exclude IPV4_SRC from match
@@ -309,12 +298,13 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
         }
     }
 
-    private List<OFAction> incomingActionList(int serverNum) {
+    private List<OFAction> incomingActionList(DatapathId dpid, int serverNum) {
+        IOFSwitch mySwitch = switchManager.getSwitch(dpid);
         OFFactory factory = mySwitch.getOFFactory();
         OFActions actions = factory.actions();
 
         if (serverNum >= 0) {
-            ServerDesc server = config.getServers().get(serverNum);
+            Server server = config.getServers().get(serverNum);
             ArrayList<OFAction> incomingActionList = new ArrayList<>();
             incomingActionList.add(actions.setDlSrc(MacAddress.of("00:00:0a:00:00:64"))); // 10.0.0.100 equiv. MAC
             incomingActionList.add(actions.setDlDst(server.getDlAddress()));
@@ -329,26 +319,74 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
         }
     }
 
+    private void installMicroflowRule(DatapathId dpid, IPv4Address src, int serverNum) {
+        IOFSwitch mySwitch = switchManager.getSwitch(dpid);
+        OFFactory factory = mySwitch.getOFFactory();
+        Match incomingMatch = factory.buildMatch()
+                .setExact(MatchField.ETH_TYPE, EthType.IPv4)
+                .setExact(MatchField.IPV4_SRC, src)
+                .setExact(MatchField.IPV4_DST, IPv4Address.of("1.1.1.1"))
+                .build();
+
+        List<OFAction> incomingActionList = incomingActionList(dpid, serverNum);
+
+        OFFlowAdd incomingFlowAdd = factory.buildFlowAdd()
+                .setMatch(incomingMatch)
+                .setActions(incomingActionList)
+                .setPriority(MICROFLOW_PRIORITY)
+                .setFlags(Collections.singleton(OFFlowModFlags.SEND_FLOW_REM))
+                .setIdleTimeout(60)
+                .build();
+
+        mySwitch.write(incomingFlowAdd);
+    }
+
+    private void installPermanentRule(DatapathId dpid, Assignment assignment) {
+        IOFSwitch mySwitch = switchManager.getSwitch(dpid);
+        OFFactory factory = mySwitch.getOFFactory();
+
+        IPv4AddressWithMask prefix = assignment.getPrefix();
+        int server = assignment.getServer();
+
+        Match incomingMatch = incomingMatch(dpid, prefix);
+
+        List<OFAction> incomingActionList = incomingActionList(dpid, server);
+
+        OFFlowAdd incomingFlowAdd = factory.buildFlowAdd()
+                .setMatch(incomingMatch)
+                .setActions(incomingActionList)
+                .setPriority(IN_PRIORITY)
+                .build();
+
+        mySwitch.write(incomingFlowAdd);
+    }
+
+    // Switch Manager methods
     @Override
     public void switchAdded(DatapathId switchId) {
-        mySwitch = switchManager.getSwitch(switchId);
+        IOFSwitch mySwitch = switchManager.getSwitch(switchId);
         OFFactory factory = mySwitch.getOFFactory();
         OFActions actions = factory.actions();
+
+        // Remember switch
+        dpids.add(switchId);
 
         // Delete all rules previously on this switch
         // TODO don't reset, continue where we left off
         mySwitch.write(factory.buildFlowDelete().build());
 
         // Handle incoming traffic
-        assignmentTree.assignments().forEach(this::installPermanentRule);
+        for (Assignment assignment : assignmentTree.assignments()) {
+            installPermanentRule(switchId, assignment);
+        }
 
         // Handle outgoing traffic
         Match outgoingMatch = factory.buildMatch()
                 .setExact(MatchField.ETH_TYPE, EthType.IPv4)
                 .build();
         ArrayList<OFAction> outgoingActionList = new ArrayList<>();
-        outgoingActionList.add(actions.setDlSrc(MacAddress.of("00:00:01:01:01:32")));
-        outgoingActionList.add(actions.setDlDst(MacAddress.of("00:00:01:01:01:64")));
+        outgoingActionList.add(actions.setDlSrc(MacAddress.of("00:00:01:01:01:64")));
+        outgoingActionList.add(actions.setDlDst(MacAddress.of("00:00:01:01:01:32")));
         outgoingActionList.add(actions.setNwSrc(IPv4Address.of("1.1.1.1")));
         outgoingActionList.add(actions.buildOutput()
                 .setPort(OFPort.of(1))
@@ -362,98 +400,108 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
                 .build();
 
         mySwitch.write(outgoingFlowAdd);
-
-        // TODO remove
-//        updateWeights(Arrays.asList(1d, 1d));
     }
 
     @Override
     public void switchRemoved(DatapathId switchId) {
         // Forget switch and reset transition information
-        if (mySwitch.getId().equals(switchId)) {
-            mySwitch = null;
-            transitions.clear();
+        if (dpids.contains(switchId)) {
+            dpids.remove(switchId);
+            transitions.remove(switchId);
         }
     }
 
     @Override
-    public void switchActivated(DatapathId switchId) {
-        // TODO Auto-generated method stub
+    public void switchActivated(DatapathId switchId) {}
 
+    @Override
+    public void switchPortChanged(DatapathId switchId, OFPortDesc port, PortChangeType type) {}
+
+    @Override
+    public void switchChanged(DatapathId switchId) {}
+
+    // Server management methods
+    @Override
+    public void addServer(Server server) {
+        this.servers.put(server.getId(), server);
     }
 
     @Override
-    public void switchPortChanged(DatapathId switchId, OFPortDesc port, PortChangeType type) {
-        // TODO Auto-generated method stub
-
+    public Server getServer(int id) {
+        return servers.get(id);
     }
 
     @Override
-    public void switchChanged(DatapathId switchId) {
-        // TODO Auto-generated method stub
+    public boolean removeServer(int id) {
+        throw new UnsupportedOperationException("Not implemented yet");
+    }
+
+    @Override
+    public void getStats() {
 
     }
 
     class LoadStatsCollector implements Runnable {
 
-        private LinkedHashMap<ServerDesc, Long> prevLoad = new LinkedHashMap<>();
+        private LinkedHashMap<Server, Long> prevLoad = new LinkedHashMap<>();
 
         public LoadStatsCollector() {
-            for (ServerDesc server : config.getServers()) {
+            for (Server server : config.getServers()) {
                 prevLoad.put(server, 0L);
             }
         }
 
         @Override
         public void run() {
-            OFFactory factory = mySwitch.getOFFactory();
+            for (DatapathId dpid : dpids) {
+                IOFSwitch mySwitch = switchManager.getSwitch(dpid);
+                OFFactory factory = mySwitch.getOFFactory();
 
-            OFFlowStatsRequest request = factory.buildFlowStatsRequest().build();
+                OFFlowStatsRequest request = factory.buildFlowStatsRequest().build();
 
-            LinkedHashMap<ServerDesc, Long> load = new LinkedHashMap<>();
-            for (ServerDesc server : config.getServers()) {
-                load.put(server, 0L);
-            }
+                LinkedHashMap<Server, Long> load = new LinkedHashMap<>();
+                for (Server server : config.getServers()) {
+                    load.put(server, 0L);
+                }
 
-            try {
-                List<OFFlowStatsReply> replies = mySwitch.writeStatsRequest(request).get();
-                for (OFFlowStatsReply reply : replies) {
-                    for (OFFlowStatsEntry entry : reply.getEntries()) {
-                        try {
-                            // Output action of this flow
-                            OFActionOutput output = (OFActionOutput) entry.getActions().stream()
-                                    .filter(x -> x instanceof OFActionOutput)
-                                    .findFirst()
-                                    .get();
+                try {
+                    List<OFFlowStatsReply> replies = mySwitch.writeStatsRequest(request).get();
+                    for (OFFlowStatsReply reply : replies) {
+                        for (OFFlowStatsEntry entry : reply.getEntries()) {
+                            try {
+                                // Output action of this flow
+                                OFActionOutput output = (OFActionOutput) entry.getActions().stream()
+                                        .filter(x -> x instanceof OFActionOutput)
+                                        .findFirst()
+                                        .get();
 
-                            // Server connected to this port
-                            int portNumber = output.getPort().getPortNumber();
-                            ServerDesc server = (ServerDesc) config.getCoreSwitch().getLoadBalanceTargets().entrySet().stream()
-                                    .filter(x -> x.getValue() == portNumber)
-                                    .findFirst()
-                                    .get()
-                                    .getKey();
+                                // Server connected to this port
+                                int portNumber = output.getPort().getPortNumber();
+                                Server server = (Server) config.getCoreSwitch().getLoadBalanceTargets().entrySet().stream()
+                                        .filter(x -> x.getValue() == portNumber)
+                                        .findFirst()
+                                        .get()
+                                        .getKey();
 
-                            // Record load
-                            load.put(server, load.get(server) + entry.getByteCount().getValue());
-                        } catch (NoSuchElementException e) {
-                            // Dropped packet
+                                // Record load
+                                load.put(server, load.get(server) + entry.getByteCount().getValue());
+                            } catch (NoSuchElementException e) {
+                                // Dropped packet
+                            }
                         }
                     }
+                } catch (InterruptedException | ExecutionException e) {
+                    e.printStackTrace();
                 }
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            } catch (ExecutionException e) {
-                e.printStackTrace();
-            }
 
-            for (ServerDesc server : load.keySet()) {
-                long number = load.get(server) - prevLoad.get(server);
-                logger.info(String.format("%s %d Mbits/s", server.getNwAddress(), number / 1024 / 1024));
-            }
+                for (Server server : load.keySet()) {
+                    long number = load.get(server) - prevLoad.get(server);
+                    logger.info(String.format("%s %d Mbits/s", server.getNwAddress(), number / 1024 / 1024));
+                }
 
-            // Update state
-            prevLoad = load;
+                // Update state
+                prevLoad = load;
+            }
         }
     }
 }

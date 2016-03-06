@@ -7,7 +7,6 @@ import org.projectfloodlight.openflow.types.IPv4Address;
 import org.projectfloodlight.openflow.types.IPv4AddressWithMask;
 import org.projectfloodlight.openflow.types.MacAddress;
 
-import javax.smartcardio.ATR;
 import java.util.*;
 
 import static org.hamcrest.Matchers.contains;
@@ -176,8 +175,8 @@ public class ServerLoadBalancerUtilTest {
                 .setWeights(Arrays.asList(4d, 3d))
                 .setMaxPrefixLength(3)
                 .setCoreSwitch(new SwitchDesc())
-                .addServer(new ServerDesc(IPv4Address.of("10.0.0.1"), MacAddress.of("00:00:0A:00:00:01")), 2)
-                .addServer(new ServerDesc(IPv4Address.of("10.0.0.2"), MacAddress.of("00:00:0A:00:00:02")), 3);
+                .addServer(Server.create("10.0.0.1", "00:00:00:00:00:01", 2, 4), 2)
+                .addServer(Server.create("10.0.0.2", "00:00:00:00:00:02", 3, 3), 3);
         AssignmentTree newTree = ServerLoadBalancerUtil.generateAssignmentTreeFewerTransitions(config, oldTree);
 
         assertThat(newTree.children[0].server, is(0));

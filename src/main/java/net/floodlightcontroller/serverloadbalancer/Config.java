@@ -8,7 +8,7 @@ public class Config {
     private int maxPrefixLength;
     private List<Double> weights;
     private SwitchDesc coreSwitch;
-    private List<ServerDesc> servers;
+    private List<Server> servers;
 
     // Stats
     private long loadStatsInterval;
@@ -60,22 +60,22 @@ public class Config {
     }
 
     // Servers
-    public List<ServerDesc> getServers() {
+    public List<Server> getServers() {
         return servers;
     }
 
-    public Config setServers(List<ServerDesc> servers) {
+    public Config setServers(List<Server> servers) {
         this.servers = servers;
         return this;
     }
 
-    public Config addServer(ServerDesc server, int portNumber) {
+    public Config addServer(Server server, int portNumber) {
         servers.add(server);
         coreSwitch.addLoadBalanceTarget(server, portNumber);
         return this;
     }
 
-    public Config removeServer(ServerDesc server) {
+    public Config removeServer(Server server) {
         servers.remove(server);
         coreSwitch.removeLoadBalanceTarget(server);
         return this;
