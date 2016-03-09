@@ -24,7 +24,6 @@ import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ScheduledFuture;
 import java.util.stream.Collectors;
 
 public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener, IOFSwitchListener, IServerLoadBalancerService {
@@ -43,7 +42,6 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
     protected IRestApiService restApiService;
     private List<DatapathId> dpids;
     private Map<DatapathId, List<Transition>> transitions;
-    private ScheduledFuture<?> loadStatsFuture;
 
     // Configuration
     private Config config;
@@ -566,29 +564,5 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
             }
         }
         return load;
-    }
-
-    class LoadStatsCollector implements Runnable {
-
-        private Map<Server, Long> prevLoad = new LinkedHashMap<>();
-
-        public LoadStatsCollector() {
-            for (Server server : config.getServers().values()) {
-                prevLoad.put(server, 0L);
-            }
-        }
-
-        @Override
-        public void run() {
-            Map<Server, Long> load = getStats();
-
-            for (Server server : load.keySet()) {
-                long number = load.get(server) - prevLoad.get(server);
-                logger.info(String.format("%s %d Mbits/s", server.getNwAddress(), number / 1024 / 1024));
-            }
-
-            // Update state
-            prevLoad = load;
-        }
     }
 }
