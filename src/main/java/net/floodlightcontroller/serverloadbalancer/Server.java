@@ -3,14 +3,15 @@ package net.floodlightcontroller.serverloadbalancer;
 import com.fasterxml.jackson.annotation.JsonGetter;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSetter;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.projectfloodlight.openflow.types.IPv4Address;
 import org.projectfloodlight.openflow.types.MacAddress;
-import org.projectfloodlight.openflow.types.OFPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.List;
 
 public class Server extends LoadBalanceTarget {
     private static int nextId = 0;
@@ -24,7 +25,7 @@ public class Server extends LoadBalanceTarget {
     private MacAddress dlAddress;
 
     @JsonProperty("port")
-    private OFPort port;
+    private String port;
 
     @JsonProperty("weight")
     private double weight;
@@ -32,11 +33,14 @@ public class Server extends LoadBalanceTarget {
     @JsonProperty("id")
     private int id;
 
+    private boolean safeToDelete;
+
     private Server() {
         this.id = nextId++;
+        this.safeToDelete = false;
     }
 
-    public static Server create(IPv4Address nwAddress, MacAddress dlAddress, OFPort port, double weight) {
+    public static Server create(IPv4Address nwAddress, MacAddress dlAddress, String port, double weight) {
         return new Server()
                 .setNwAddress(nwAddress)
                 .setDlAddress(dlAddress)
@@ -45,17 +49,22 @@ public class Server extends LoadBalanceTarget {
                 .setId(nextId++);
     }
 
-    public static Server create(String nwAddress, String dlAddress, int port, double weight) {
+    public static Server create(String nwAddress, String dlAddress, String port, double weight) {
         return create(
                 IPv4Address.of(nwAddress),
                 MacAddress.of(dlAddress),
-                OFPort.of(port),
+                port,
                 weight);
     }
 
     public static Server fromJson(String fmJson) throws IOException {
         ObjectMapper mapper = new ObjectMapper();
         return mapper.readValue(fmJson, Server.class);
+    }
+
+    public static List<Server> fromJsonList(String fmJson) throws IOException {
+        ObjectMapper mapper = new ObjectMapper();
+        return mapper.readValue(fmJson, new TypeReference<List<Server>>() {});
     }
 
     // Regular properties
@@ -78,11 +87,11 @@ public class Server extends LoadBalanceTarget {
         return this;
     }
 
-    public OFPort getPort() {
+    public String getPort() {
         return port;
     }
 
-    public Server setPort(OFPort port) {
+    public Server setPort(String port) {
         this.port = port;
         return this;
     }
@@ -102,6 +111,15 @@ public class Server extends LoadBalanceTarget {
 
     public Server setId(int id) {
         this.id = id;
+        return this;
+    }
+
+    public boolean isSafeToDelete() {
+        return safeToDelete;
+    }
+
+    public Server setSafeToDelete(boolean safeToDelete) {
+        this.safeToDelete = safeToDelete;
         return this;
     }
 
@@ -127,13 +145,8 @@ public class Server extends LoadBalanceTarget {
         return this.getDlAddress().toString();
     }
 
-    @JsonSetter("port")
-    public Server setJsonPort(int i) {
-        return this.setPort(OFPort.of(i));
-    }
-
-    @JsonGetter("port")
-    public int getJsonPort() {
-        return this.getPort().getPortNumber();
+    @Override
+    public String toString() {
+        return String.format("Server %d IP %s MAC %s port %s weight %.2f", this.id, this.nwAddress, this.dlAddress, this.port, this.weight);
     }
 }

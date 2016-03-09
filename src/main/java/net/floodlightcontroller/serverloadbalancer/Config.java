@@ -1,14 +1,16 @@
 package net.floodlightcontroller.serverloadbalancer;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 public class Config {
     // Assignments
     private int maxPrefixLength;
     private List<Double> weights;
     private SwitchDesc coreSwitch;
-    private List<Server> servers;
+    private Map<Integer, Server> servers;
 
     // Stats
     private long loadStatsInterval;
@@ -16,7 +18,7 @@ public class Config {
     public Config() {
         maxPrefixLength = 3;
         weights = new ArrayList<>();
-        servers = new ArrayList<>();
+        servers = new LinkedHashMap<>();
     }
 
     // Max Prefix Length
@@ -60,24 +62,24 @@ public class Config {
     }
 
     // Servers
-    public List<Server> getServers() {
+    public Map<Integer, Server> getServers() {
         return servers;
     }
 
-    public Config setServers(List<Server> servers) {
+    public Config setServers(Map<Integer, Server> servers) {
         this.servers = servers;
         return this;
     }
 
-    public Config addServer(Server server, int portNumber) {
-        servers.add(server);
-        coreSwitch.addLoadBalanceTarget(server, portNumber);
+    public Config addServer(Server server) {
+        servers.put(server.getId(), server);
+//        coreSwitch.addLoadBalanceTarget(server, server.getPort().getPortNumber());
         return this;
     }
 
     public Config removeServer(Server server) {
-        servers.remove(server);
-        coreSwitch.removeLoadBalanceTarget(server);
+        servers.remove(server.getId());
+//        coreSwitch.removeLoadBalanceTarget(server);
         return this;
     }
 }

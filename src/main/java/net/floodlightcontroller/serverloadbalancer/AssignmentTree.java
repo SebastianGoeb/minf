@@ -63,7 +63,7 @@ public class AssignmentTree {
         // TODO propagate things?
     }
 
-    private void expandUntil(IPv4Address mask) {
+    public void expandUntil(IPv4Address mask) {
         if (!prefix.getMask().equals(mask)) {
             if (children == null) {
                 expand();
@@ -183,5 +183,24 @@ public class AssignmentTree {
         }
 
         return clearedAssignments;
+    }
+
+    public int unsafeBalancedDepth() {
+        if (children == null) {
+            return Integer.bitCount(prefix.getMask().getInt());
+        } else {
+            return children[0].unsafeBalancedDepth();
+        }
+    }
+
+    public List<AssignmentTree> getSubtreesAssignedTo(Integer server) {
+        List<AssignmentTree> list = new ArrayList<>();
+        if (this.server == server) {
+            list.add(this);
+        } else if (children != null) {
+            list.addAll(children[0].getSubtreesAssignedTo(server));
+            list.addAll(children[1].getSubtreesAssignedTo(server));
+        }
+        return list;
     }
 }

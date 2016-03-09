@@ -175,8 +175,8 @@ public class ServerLoadBalancerUtilTest {
                 .setWeights(Arrays.asList(4d, 3d))
                 .setMaxPrefixLength(3)
                 .setCoreSwitch(new SwitchDesc())
-                .addServer(Server.create("10.0.0.1", "00:00:00:00:00:01", 2, 4), 2)
-                .addServer(Server.create("10.0.0.2", "00:00:00:00:00:02", 3, 3), 3);
+                .addServer(Server.create("10.0.0.1", "00:00:00:00:00:01", "p_1", 4))
+                .addServer(Server.create("10.0.0.2", "00:00:00:00:00:02", "p_2", 3));
         AssignmentTree newTree = ServerLoadBalancerUtil.generateAssignmentTreeFewerTransitions(config, oldTree);
 
         assertThat(newTree.children[0].server, is(0));

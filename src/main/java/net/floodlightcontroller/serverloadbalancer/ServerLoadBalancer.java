@@ -25,6 +25,7 @@ import org.slf4j.LoggerFactory;
 import java.util.*;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ScheduledFuture;
+import java.util.stream.Collectors;
 
 public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener, IOFSwitchListener, IServerLoadBalancerService {
 
@@ -43,7 +44,6 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
     private List<DatapathId> dpids;
     private Map<DatapathId, List<Transition>> transitions;
     private ScheduledFuture<?> loadStatsFuture;
-    private Map<Integer, Server> servers;
 
     // Configuration
     private Config config;
@@ -132,7 +132,6 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
         assignmentTree = ServerLoadBalancerUtil.generateAssignmentTreeOptimal(config);
         dpids = new ArrayList<>();
         transitions = new HashMap<>();
-        servers = new HashMap<>();
 
         // REST Service
         restApiService.addRestletRoutable(new ServerLoadBalancerWebRoutable());
@@ -223,43 +222,53 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
     }
 
     // Transition helpers
-    private void updateWeights(List<Double> weights) {
-        config.setWeights(weights);
+    @Override
+    public void requestTransition() {
         AssignmentTree nextAssignmentTree = ServerLoadBalancerUtil.generateAssignmentTreeFewerTransitions(config, assignmentTree);
         for (DatapathId dpid : dpids) {
             List<Transition> transitionList = ServerLoadBalancerUtil.generateTransitions(assignmentTree, nextAssignmentTree);
-            transitions.put(dpid, transitionList);
             for (Transition transition : transitionList) {
                 startTransition(dpid, transition);
             }
+
+            // Only save those transitions that aren't instantaneous
+            transitions.put(dpid, transitionList.stream()
+                    .filter(t -> t.getFrom().stream()
+                            .allMatch(a -> a.getServer() != null && a.getServer() != -1))
+                    .collect(Collectors.toList()));
         }
         assignmentTree = nextAssignmentTree;
+    }
+
+    @Override
+    public int numRules() {
+        int rules = 0;
+
+        for (DatapathId dpid : dpids) {
+            IOFSwitch mySwitch = switchManager.getSwitch(dpid);
+            OFFactory factory = mySwitch.getOFFactory();
+
+            OFFlowStatsRequest request = factory.buildFlowStatsRequest().build();
+
+
+            try {
+                List<OFFlowStatsReply> replies = mySwitch.writeStatsRequest(request).get();
+                for (OFFlowStatsReply reply : replies) {
+                    for (OFFlowStatsEntry entry : reply.getEntries()) {
+                        rules++;
+                    }
+                }
+            } catch (InterruptedException | ExecutionException e) {
+                e.printStackTrace();
+            }
+        }
+        return rules;
     }
 
     private void startTransition(DatapathId dpid, Transition transition) {
         IOFSwitch mySwitch = switchManager.getSwitch(dpid);
         OFFactory factory = mySwitch.getOFFactory();
         OFActions actions = factory.actions();
-
-        // Add new flow to controller
-        IPv4AddressWithMask transitionPrefix = transition.prefix();
-        Match transitionMatch = incomingMatch(dpid, transitionPrefix);
-
-        ArrayList<OFAction> transitionActionList = new ArrayList<>();
-        transitionActionList.add(actions.buildOutput()
-                .setPort(OFPort.CONTROLLER)
-                .setMaxLen(0xFFffFFff)
-                .build());
-
-        OFFlowAdd transitionFlowAdd = factory.buildFlowAdd()
-                .setMatch(transitionMatch)
-                .setPriority(TRANSITION_PRIORITY)
-                .setActions(transitionActionList)
-                .setHardTimeout(60)
-                .setFlags(Collections.singleton(OFFlowModFlags.SEND_FLOW_REM))
-                .build();
-
-        mySwitch.write(transitionFlowAdd);
 
         // Remove old flows
         for (Assignment assignment : transition.getFrom()) {
@@ -272,11 +281,50 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
 
             mySwitch.write(incomingFlowDeleteStrict);
         }
+
+        // If all source assignments are to -1
+        boolean isAssignment = transition.getFrom().stream()
+                .allMatch(a -> a.getServer() != null && a.getServer() == -1);
+        if (isAssignment) {
+            // Add new permanent flow to controller and remove transition immediately
+            for (Assignment assignment : transition.getTo()) {
+                installPermanentRule(dpid, assignment);
+            }
+        } else {
+            // Add new transition flow to controller
+            IPv4AddressWithMask transitionPrefix = transition.prefix();
+            Match transitionMatch = incomingMatch(dpid, transitionPrefix);
+
+            ArrayList<OFAction> transitionActionList = new ArrayList<>();
+            transitionActionList.add(actions.buildOutput()
+                    .setPort(OFPort.CONTROLLER)
+                    .setMaxLen(0xFFffFFff)
+                    .build());
+
+            OFFlowAdd transitionFlowAdd = factory.buildFlowAdd()
+                    .setMatch(transitionMatch)
+                    .setPriority(TRANSITION_PRIORITY)
+                    .setActions(transitionActionList)
+                    .setHardTimeout(60)
+                    .setFlags(Collections.singleton(OFFlowModFlags.SEND_FLOW_REM))
+                    .build();
+
+            mySwitch.write(transitionFlowAdd);
+        }
     }
 
     @Override
-    public void requestTransition() {
-        // TODO implement and debounce/throttle
+    public void autoSetMaxPrefixLength() {
+        double servers = config.getServers().size();
+        int minPrefixes = (int) Math.ceil(servers * 8.0 / 7.0);
+        int smallestAllowedMaxPrefixLength = 3;
+        for (int i = smallestAllowedMaxPrefixLength; i <= 32; i++) {
+            if (1 << i >= minPrefixes) {
+                config.setMaxPrefixLength(i);
+                return;
+            }
+        }
+        throw new IllegalStateException("no maxPrefixLength from 3-32 was enough to accomodate all these servers");
     }
 
     // Rule helpers
@@ -310,7 +358,7 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
             incomingActionList.add(actions.setDlDst(server.getDlAddress()));
             incomingActionList.add(actions.setNwDst(server.getNwAddress()));
             incomingActionList.add(actions.buildOutput()
-                    .setPort(OFPort.of(config.getCoreSwitch().getLoadBalanceTargets().get(server)))
+                    .setPort(mySwitch.getPort(server.getPort()).getPortNo())
                     .setMaxLen(0xFFffFFff)
                     .build());
             return incomingActionList;
@@ -361,6 +409,22 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
         mySwitch.write(incomingFlowAdd);
     }
 
+    private void removePermanentRule(DatapathId dpid, Assignment assignment) {
+        IOFSwitch mySwitch = switchManager.getSwitch(dpid);
+        OFFactory factory = mySwitch.getOFFactory();
+
+        IPv4AddressWithMask prefix = assignment.getPrefix();
+
+        Match incomingMatch = incomingMatch(dpid, prefix);
+
+        OFFlowDeleteStrict incomingFlowDeleteStrict = factory.buildFlowDeleteStrict()
+                .setMatch(incomingMatch)
+                .setPriority(IN_PRIORITY)
+                .build();
+
+        mySwitch.write(incomingFlowDeleteStrict);
+    }
+
     // Switch Manager methods
     @Override
     public void switchAdded(DatapathId switchId) {
@@ -383,6 +447,7 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
         // Handle outgoing traffic
         Match outgoingMatch = factory.buildMatch()
                 .setExact(MatchField.ETH_TYPE, EthType.IPv4)
+                .setMasked(MatchField.IPV4_SRC, IPv4AddressWithMask.of("10.0.0.0/8"))
                 .build();
         ArrayList<OFAction> outgoingActionList = new ArrayList<>();
         outgoingActionList.add(actions.setDlSrc(MacAddress.of("00:00:01:01:01:64")));
@@ -423,85 +488,107 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
     // Server management methods
     @Override
     public void addServer(Server server) {
-        this.servers.put(server.getId(), server);
+        this.config.addServer(server);
+        logger.info("Added " + server.toString());
     }
 
     @Override
     public Server getServer(int id) {
-        return servers.get(id);
+        return config.getServers().get(id);
     }
 
     @Override
-    public boolean removeServer(int id) {
-        throw new UnsupportedOperationException("Not implemented yet");
+    public void removeServers(List<Integer> ids) {
+        for (Integer id : ids) {
+            // Re-assign prefixes to -1 (drop)
+            for (AssignmentTree tree : assignmentTree.getSubtreesAssignedTo(id)) {
+                for (DatapathId dpid : dpids) {
+                    removePermanentRule(dpid, new Assignment(tree.prefix, tree.server));
+                    installPermanentRule(dpid, new Assignment(tree.prefix, -1));
+                }
+                tree.server = -1;
+            }
+
+            // Delete any microflow rules remaining
+            // TODO Delete any microflow rules remaining
+            Server server = config.getServers().get(id);
+            config.removeServer(server);
+            logger.info("Removed " + server.toString());
+        }
+    }
+    @Override
+    public void removeAllServers() {
+        removeServers(config.getServers().keySet().stream().collect(Collectors.toList()));
     }
 
     @Override
-    public void getStats() {
+    public Map<Server, Long> getStats() {
+        LinkedHashMap<Server, Long> load = new LinkedHashMap<>();
+        for (Server server : config.getServers().values()) {
+            load.put(server, 0L);
+        }
 
+        // TODO this won't work in a hierarchical setting
+        for (DatapathId dpid : dpids) {
+            IOFSwitch mySwitch = switchManager.getSwitch(dpid);
+            OFFactory factory = mySwitch.getOFFactory();
+
+            OFFlowStatsRequest request = factory.buildFlowStatsRequest().build();
+
+
+            try {
+                List<OFFlowStatsReply> replies = mySwitch.writeStatsRequest(request).get();
+                for (OFFlowStatsReply reply : replies) {
+                    for (OFFlowStatsEntry entry : reply.getEntries()) {
+                        try {
+                            // Output action of this flow
+                            OFActionOutput output = (OFActionOutput) entry.getActions().stream()
+                                    .filter(x -> x instanceof OFActionOutput)
+                                    .findFirst()
+                                    .get();
+
+                            // Server connected to this port
+                            int portNumber = output.getPort().getPortNumber();
+                            Server server = config.getServers().values().stream()
+                                    .filter(x -> mySwitch.getPort(x.getPort()).getPortNo().getPortNumber() == portNumber)
+                                    .findFirst()
+                                    .get();
+
+                            // Record load
+                            load.put(server, load.get(server) + entry.getByteCount().getValue());
+                        } catch (NoSuchElementException e) {
+                            // Dropped packet
+                        }
+                    }
+                }
+            } catch (InterruptedException | ExecutionException e) {
+                e.printStackTrace();
+            }
+        }
+        return load;
     }
 
     class LoadStatsCollector implements Runnable {
 
-        private LinkedHashMap<Server, Long> prevLoad = new LinkedHashMap<>();
+        private Map<Server, Long> prevLoad = new LinkedHashMap<>();
 
         public LoadStatsCollector() {
-            for (Server server : config.getServers()) {
+            for (Server server : config.getServers().values()) {
                 prevLoad.put(server, 0L);
             }
         }
 
         @Override
         public void run() {
-            for (DatapathId dpid : dpids) {
-                IOFSwitch mySwitch = switchManager.getSwitch(dpid);
-                OFFactory factory = mySwitch.getOFFactory();
+            Map<Server, Long> load = getStats();
 
-                OFFlowStatsRequest request = factory.buildFlowStatsRequest().build();
-
-                LinkedHashMap<Server, Long> load = new LinkedHashMap<>();
-                for (Server server : config.getServers()) {
-                    load.put(server, 0L);
-                }
-
-                try {
-                    List<OFFlowStatsReply> replies = mySwitch.writeStatsRequest(request).get();
-                    for (OFFlowStatsReply reply : replies) {
-                        for (OFFlowStatsEntry entry : reply.getEntries()) {
-                            try {
-                                // Output action of this flow
-                                OFActionOutput output = (OFActionOutput) entry.getActions().stream()
-                                        .filter(x -> x instanceof OFActionOutput)
-                                        .findFirst()
-                                        .get();
-
-                                // Server connected to this port
-                                int portNumber = output.getPort().getPortNumber();
-                                Server server = (Server) config.getCoreSwitch().getLoadBalanceTargets().entrySet().stream()
-                                        .filter(x -> x.getValue() == portNumber)
-                                        .findFirst()
-                                        .get()
-                                        .getKey();
-
-                                // Record load
-                                load.put(server, load.get(server) + entry.getByteCount().getValue());
-                            } catch (NoSuchElementException e) {
-                                // Dropped packet
-                            }
-                        }
-                    }
-                } catch (InterruptedException | ExecutionException e) {
-                    e.printStackTrace();
-                }
-
-                for (Server server : load.keySet()) {
-                    long number = load.get(server) - prevLoad.get(server);
-                    logger.info(String.format("%s %d Mbits/s", server.getNwAddress(), number / 1024 / 1024));
-                }
-
-                // Update state
-                prevLoad = load;
+            for (Server server : load.keySet()) {
+                long number = load.get(server) - prevLoad.get(server);
+                logger.info(String.format("%s %d Mbits/s", server.getNwAddress(), number / 1024 / 1024));
             }
+
+            // Update state
+            prevLoad = load;
         }
     }
 }

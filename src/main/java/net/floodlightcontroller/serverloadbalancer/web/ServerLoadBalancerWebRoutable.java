@@ -10,9 +10,9 @@ public class ServerLoadBalancerWebRoutable implements RestletRoutable{
     public Restlet getRestlet(Context context) {
         Router router = new Router(context);
         router.attach("/servers", ServerCreateResource.class);
-        router.attach("/servers/{id}", ServerPatchResource.class);
-        router.attach("/experiments", ServerLoadBalancerExperimentResource.class);
-        router.attach("/experiments/{id}", ServerLoadBalancerExperimentResource.class);
+//        router.attach("/servers/{id}", ServerPatchResource.class);
+        router.attach("/servers/{id}", ServerDeleteResource.class);
+        router.attach("/stats", ServerLoadBalancerStatsResource.class);
         return router;
     }
 
