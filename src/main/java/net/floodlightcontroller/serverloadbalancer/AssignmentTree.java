@@ -203,4 +203,10 @@ public class AssignmentTree {
         }
         return list;
     }
+
+    @Override
+    public String toString() {
+        
+        return "";
+    }
 }

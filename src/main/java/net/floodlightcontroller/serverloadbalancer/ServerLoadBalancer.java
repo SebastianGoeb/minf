@@ -43,6 +43,9 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
     private List<DatapathId> dpids;
     private Map<DatapathId, List<Transition>> transitions;
 
+    private Map<DatapathId, List<Match>> transitionMatches;
+    private Map<DatapathId, List<Match>> microflowMatches;
+
     // Configuration
     private Config config;
 
@@ -130,6 +133,8 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
         assignmentTree = ServerLoadBalancerUtil.generateAssignmentTreeOptimal(config);
         dpids = new ArrayList<>();
         transitions = new HashMap<>();
+        transitionMatches = new HashMap<>();
+        microflowMatches = new HashMap<>();
 
         // REST Service
         restApiService.addRestletRoutable(new ServerLoadBalancerWebRoutable());
@@ -181,42 +186,36 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
             case FLOW_REMOVED:
                 Match removedMatch = ((OFFlowRemoved) msg).getMatch();
 
-                Transition matchingTransition;
+                if (!dpids.contains(dpid)) {
+                    // Ignore, this switch has been disconnected
+                    break;
+                }
 
-                // Remove rule from transition
                 if (removedMatch.isExact(MatchField.IPV4_SRC)) {
-                    // Microflow rule
-                    matchingTransition = transitions.get(dpid).stream()
-                            .filter(t -> t.getMicroflowMatches().contains(removedMatch))
-                            .findFirst()
-                            .get();
-
-                    matchingTransition.getMicroflowMatches().remove(removedMatch);
-
+                    // Remove microflow rule
+                    microflowMatches.remove(removedMatch);
                 } else {
-                    // Transition rule
-                    matchingTransition = transitions.get(dpid).stream()
-                            .filter(t -> t.getTransitionMatches().contains(removedMatch))
+                    // Remove transition rule
+                    transitionMatches.remove(removedMatch);
+
+                    // Find transition corresponding to this rule
+                    IPv4AddressWithMask src = (IPv4AddressWithMask) removedMatch.getMasked(MatchField.IPV4_SRC);
+                    Transition matchingTransition = transitions.get(dpid).stream()
+                            .filter(t -> t.prefix().equals(src))
                             .findFirst()
-                            .get();
+                            .orElse(null);
 
-                    matchingTransition.getTransitionMatches().remove(removedMatch);
-                }
-
-                // If transition is complete, install new permanent rules
-                if (matchingTransition.getTransitionMatches().isEmpty()) {
-                    for (Assignment assignment : matchingTransition.getTo()) {
-                        installPermanentRule(dpid, assignment);
+                    // If transition is complete, install new permanent rules and delete transition
+                    if (matchingTransition != null) {
+                        for (Assignment assignment : matchingTransition.getTo()) {
+                            installPermanentRule(dpid, assignment);
+                        }
+                        transitions.get(dpid).remove(matchingTransition);
                     }
-                }
-
-                // When last microflow rule expires, remove transition
-                if (matchingTransition.getMicroflowMatches().isEmpty()) {
-                    transitions.get(dpid).remove(matchingTransition);
                 }
                 break;
         }
-        return Command.CONTINUE;
+        return Command.STOP;
     }
 
     // Transition helpers
@@ -238,31 +237,6 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
         assignmentTree = nextAssignmentTree;
     }
 
-    @Override
-    public int numRules() {
-        int rules = 0;
-
-        for (DatapathId dpid : dpids) {
-            IOFSwitch mySwitch = switchManager.getSwitch(dpid);
-            OFFactory factory = mySwitch.getOFFactory();
-
-            OFFlowStatsRequest request = factory.buildFlowStatsRequest().build();
-
-
-            try {
-                List<OFFlowStatsReply> replies = mySwitch.writeStatsRequest(request).get();
-                for (OFFlowStatsReply reply : replies) {
-                    for (OFFlowStatsEntry entry : reply.getEntries()) {
-                        rules++;
-                    }
-                }
-            } catch (InterruptedException | ExecutionException e) {
-                e.printStackTrace();
-            }
-        }
-        return rules;
-    }
-
     private void startTransition(DatapathId dpid, Transition transition) {
         IOFSwitch mySwitch = switchManager.getSwitch(dpid);
         OFFactory factory = mySwitch.getOFFactory();
@@ -270,14 +244,7 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
 
         // Remove old flows
         for (Assignment assignment : transition.getFrom()) {
-            Match incomingMatch = incomingMatch(dpid, assignment.getPrefix());
-
-            OFFlowDeleteStrict incomingFlowDeleteStrict = factory.buildFlowDeleteStrict()
-                    .setMatch(incomingMatch)
-                    .setPriority(IN_PRIORITY)
-                    .build();
-
-            mySwitch.write(incomingFlowDeleteStrict);
+            removePermanentRule(dpid, assignment);
         }
 
         // If all source assignments are to -1
@@ -290,24 +257,7 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
             }
         } else {
             // Add new transition flow to controller
-            IPv4AddressWithMask transitionPrefix = transition.prefix();
-            Match transitionMatch = incomingMatch(dpid, transitionPrefix);
-
-            ArrayList<OFAction> transitionActionList = new ArrayList<>();
-            transitionActionList.add(actions.buildOutput()
-                    .setPort(OFPort.CONTROLLER)
-                    .setMaxLen(0xFFffFFff)
-                    .build());
-
-            OFFlowAdd transitionFlowAdd = factory.buildFlowAdd()
-                    .setMatch(transitionMatch)
-                    .setPriority(TRANSITION_PRIORITY)
-                    .setActions(transitionActionList)
-                    .setHardTimeout(60)
-                    .setFlags(Collections.singleton(OFFlowModFlags.SEND_FLOW_REM))
-                    .build();
-
-            mySwitch.write(transitionFlowAdd);
+            installTransitionRule(dpid, transition.prefix());
         }
     }
 
@@ -385,6 +335,36 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
                 .build();
 
         mySwitch.write(incomingFlowAdd);
+
+        // Record microflow rule
+        microflowMatches.get(dpid).add(incomingMatch);
+    }
+
+    private void installTransitionRule(DatapathId dpid, IPv4AddressWithMask prefix) {
+        IOFSwitch mySwitch = switchManager.getSwitch(dpid);
+        OFFactory factory = mySwitch.getOFFactory();
+        OFActions actions = factory.actions();
+
+        Match transitionMatch = incomingMatch(dpid, prefix);
+
+        ArrayList<OFAction> transitionActionList = new ArrayList<>();
+        transitionActionList.add(actions.buildOutput()
+                .setPort(OFPort.CONTROLLER)
+                .setMaxLen(0xFFffFFff)
+                .build());
+
+        OFFlowAdd transitionFlowAdd = factory.buildFlowAdd()
+                .setMatch(transitionMatch)
+                .setPriority(TRANSITION_PRIORITY)
+                .setActions(transitionActionList)
+                .setHardTimeout(60)
+                .setFlags(Collections.singleton(OFFlowModFlags.SEND_FLOW_REM))
+                .build();
+
+        mySwitch.write(transitionFlowAdd);
+
+        // Record transition rule
+        transitionMatches.get(dpid).add(transitionMatch);
     }
 
     private void installPermanentRule(DatapathId dpid, Assignment assignment) {
@@ -411,9 +391,7 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
         IOFSwitch mySwitch = switchManager.getSwitch(dpid);
         OFFactory factory = mySwitch.getOFFactory();
 
-        IPv4AddressWithMask prefix = assignment.getPrefix();
-
-        Match incomingMatch = incomingMatch(dpid, prefix);
+        Match incomingMatch = incomingMatch(dpid, assignment.getPrefix());
 
         OFFlowDeleteStrict incomingFlowDeleteStrict = factory.buildFlowDeleteStrict()
                 .setMatch(incomingMatch)
@@ -432,6 +410,8 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
 
         // Remember switch
         dpids.add(switchId);
+        transitionMatches.put(switchId, new ArrayList<>());
+        microflowMatches.put(switchId, new ArrayList<>());
 
         // Delete all rules previously on this switch
         // TODO don't reset, continue where we left off
@@ -471,6 +451,8 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
         if (dpids.contains(switchId)) {
             dpids.remove(switchId);
             transitions.remove(switchId);
+            transitionMatches.remove(switchId);
+            microflowMatches.remove(switchId);
         }
     }
 
@@ -517,6 +499,32 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
     @Override
     public void removeAllServers() {
         removeServers(config.getServers().keySet().stream().collect(Collectors.toList()));
+    }
+
+    // Stats methods
+    @Override
+    public int numRules() {
+        int rules = 0;
+
+        for (DatapathId dpid : dpids) {
+            IOFSwitch mySwitch = switchManager.getSwitch(dpid);
+            OFFactory factory = mySwitch.getOFFactory();
+
+            OFFlowStatsRequest request = factory.buildFlowStatsRequest().build();
+
+
+            try {
+                List<OFFlowStatsReply> replies = mySwitch.writeStatsRequest(request).get();
+                for (OFFlowStatsReply reply : replies) {
+                    for (OFFlowStatsEntry entry : reply.getEntries()) {
+                        rules++;
+                    }
+                }
+            } catch (InterruptedException | ExecutionException e) {
+                e.printStackTrace();
+            }
+        }
+        return rules;
     }
 
     @Override
