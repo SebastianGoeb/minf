@@ -1,14 +1,14 @@
 package net.floodlightcontroller.serverloadbalancer;
 
 import net.floodlightcontroller.core.module.IFloodlightService;
+import org.projectfloodlight.openflow.types.DatapathId;
 
 import java.util.List;
 import java.util.Map;
 
 public interface IServerLoadBalancerService extends IFloodlightService {
     public void requestTransition();
-
-    public int numRules();
+    public List<DatapathId> getDpids();
 
     // Servers
     public void addServer(Server server);
@@ -17,7 +17,8 @@ public interface IServerLoadBalancerService extends IFloodlightService {
     public void removeAllServers();
 
     //Stats
-    public Map<Server, Long> getStats();
+    public Map<Server, Long> getStats(DatapathId dpid);
+    public int numRules(DatapathId dpid);
 
     public void autoSetMaxPrefixLength();
 }

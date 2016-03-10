@@ -1,7 +1,9 @@
 package net.floodlightcontroller.serverloadbalancer.web;
 
 import net.floodlightcontroller.serverloadbalancer.IServerLoadBalancerService;
+import net.floodlightcontroller.serverloadbalancer.Server;
 import net.floodlightcontroller.staticflowentry.web.ListStaticFlowEntriesResource;
+import org.projectfloodlight.openflow.types.DatapathId;
 import org.restlet.data.Status;
 import org.restlet.resource.Get;
 import org.restlet.resource.ServerResource;
@@ -24,19 +26,31 @@ public class ServerLoadBalancerStatsResource extends ServerResource {
                         .get(IServerLoadBalancerService.class.getCanonicalName());
 
 
-        // Adjust maxPrefixLength
-        Map<String, Long> load = slbService.getStats().entrySet().stream()
+        // TODO this won't make sense in a hierarchical setting because throughput from switches in series don't add
+        Map<String, Long> overallLoadMap = new HashMap<>();
+        for (DatapathId dpid : slbService.getDpids()) {
+            for (Map.Entry<Server, Long> entry : slbService.getStats(dpid).entrySet()) {
+                String ipString = entry.getKey().getNwAddress().toString();
+                long load = entry.getValue();
+                if (!overallLoadMap.containsKey(ipString)) {
+                    overallLoadMap.put(ipString, 0L);
+                }
+                overallLoadMap.put(ipString, overallLoadMap.get(ipString) + load);
+            }
+        }
+
+
+        Map<DatapathId, Integer> rulesMap = slbService.getDpids().stream()
                 .collect(Collectors.toMap(
-                        e -> e.getKey().getNwAddress().toString(),
-                        e -> e.getValue()
+                        dpid -> dpid,
+                        slbService::numRules
                 ));
-        Integer rules = slbService.numRules();
 
         // Construct response
         setStatus(Status.SUCCESS_OK);
         Map<String, Object> response = new HashMap<>();
-        response.put("rules", rules);
-        response.put("load", load);
+        response.put("rules", rulesMap);
+        response.put("load", overallLoadMap);
         return response;
     }
 }

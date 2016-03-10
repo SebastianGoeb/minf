@@ -193,10 +193,10 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
 
                 if (removedMatch.isExact(MatchField.IPV4_SRC)) {
                     // Remove microflow rule
-                    microflowMatches.remove(removedMatch);
+                    microflowMatches.get(dpid).remove(removedMatch);
                 } else {
                     // Remove transition rule
-                    transitionMatches.remove(removedMatch);
+                    transitionMatches.get(dpid).remove(removedMatch);
 
                     // Find transition corresponding to this rule
                     IPv4AddressWithMask src = (IPv4AddressWithMask) removedMatch.getMasked(MatchField.IPV4_SRC);
@@ -238,10 +238,6 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
     }
 
     private void startTransition(DatapathId dpid, Transition transition) {
-        IOFSwitch mySwitch = switchManager.getSwitch(dpid);
-        OFFactory factory = mySwitch.getOFFactory();
-        OFActions actions = factory.actions();
-
         // Remove old flows
         for (Assignment assignment : transition.getFrom()) {
             removePermanentRule(dpid, assignment);
@@ -503,73 +499,68 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
 
     // Stats methods
     @Override
-    public int numRules() {
-        int rules = 0;
-
-        for (DatapathId dpid : dpids) {
-            IOFSwitch mySwitch = switchManager.getSwitch(dpid);
-            OFFactory factory = mySwitch.getOFFactory();
-
-            OFFlowStatsRequest request = factory.buildFlowStatsRequest().build();
-
-
-            try {
-                List<OFFlowStatsReply> replies = mySwitch.writeStatsRequest(request).get();
-                for (OFFlowStatsReply reply : replies) {
-                    for (OFFlowStatsEntry entry : reply.getEntries()) {
-                        rules++;
-                    }
-                }
-            } catch (InterruptedException | ExecutionException e) {
-                e.printStackTrace();
-            }
-        }
-        return rules;
+    public List<DatapathId> getDpids() {
+        return dpids;
     }
 
     @Override
-    public Map<Server, Long> getStats() {
+    public int numRules(DatapathId dpid) {
+        IOFSwitch mySwitch = switchManager.getSwitch(dpid);
+        OFFactory factory = mySwitch.getOFFactory();
+
+        OFFlowStatsRequest request = factory.buildFlowStatsRequest().build();
+
+        try {
+            List<OFFlowStatsReply> replies = mySwitch.writeStatsRequest(request).get();
+            return replies.stream()
+                    .mapToInt(reply -> reply.getEntries().size())
+                    .sum();
+        } catch (InterruptedException | ExecutionException e) {
+            e.printStackTrace();
+        }
+        return 0;
+    }
+
+    @Override
+    public Map<Server, Long> getStats(DatapathId dpid) {
         LinkedHashMap<Server, Long> load = new LinkedHashMap<>();
         for (Server server : config.getServers().values()) {
             load.put(server, 0L);
         }
 
-        // TODO this won't work in a hierarchical setting
-        for (DatapathId dpid : dpids) {
-            IOFSwitch mySwitch = switchManager.getSwitch(dpid);
-            OFFactory factory = mySwitch.getOFFactory();
+        IOFSwitch mySwitch = switchManager.getSwitch(dpid);
+        OFFactory factory = mySwitch.getOFFactory();
 
-            OFFlowStatsRequest request = factory.buildFlowStatsRequest().build();
+        OFFlowStatsRequest request = factory.buildFlowStatsRequest().build();
 
 
-            try {
-                List<OFFlowStatsReply> replies = mySwitch.writeStatsRequest(request).get();
-                for (OFFlowStatsReply reply : replies) {
-                    for (OFFlowStatsEntry entry : reply.getEntries()) {
-                        try {
-                            // Output action of this flow
-                            OFActionOutput output = (OFActionOutput) entry.getActions().stream()
-                                    .filter(x -> x instanceof OFActionOutput)
-                                    .findFirst()
-                                    .get();
+        try {
+            List<OFFlowStatsReply> replies = mySwitch.writeStatsRequest(request).get();
+            for (OFFlowStatsReply reply : replies) {
+                for (OFFlowStatsEntry entry : reply.getEntries()) {
+                    try {
+                        // Output action of this flow
+                        OFActionOutput output = (OFActionOutput) entry.getActions().stream()
+                                .filter(x -> x instanceof OFActionOutput)
+                                .findFirst()
+                                .get();
 
-                            // Server connected to this port
-                            int portNumber = output.getPort().getPortNumber();
-                            Server server = config.getServers().values().stream()
-                                    .filter(x -> mySwitch.getPort(x.getPort()).getPortNo().getPortNumber() == portNumber)
-                                    .findFirst()
-                                    .get();
+                        // Server connected to this port
+                        int portNumber = output.getPort().getPortNumber();
+                        Server server = config.getServers().values().stream()
+                                .filter(x -> mySwitch.getPort(x.getPort()).getPortNo().getPortNumber() == portNumber)
+                                .findFirst()
+                                .get();
 
-                            // Record load
-                            load.put(server, load.get(server) + entry.getByteCount().getValue());
-                        } catch (NoSuchElementException e) {
-                            // Dropped packet
-                        }
+                        // Record load
+                        load.put(server, load.get(server) + entry.getByteCount().getValue());
+                    } catch (NoSuchElementException e) {
+                        // Dropped packet
                     }
                 }
-            } catch (InterruptedException | ExecutionException e) {
-                e.printStackTrace();
             }
+        } catch (InterruptedException | ExecutionException e) {
+            e.printStackTrace();
         }
         return load;
     }
