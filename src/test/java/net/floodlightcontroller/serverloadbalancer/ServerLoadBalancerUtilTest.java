@@ -5,7 +5,6 @@ import org.junit.Before;
 import org.junit.Test;
 import org.projectfloodlight.openflow.types.IPv4Address;
 import org.projectfloodlight.openflow.types.IPv4AddressWithMask;
-import org.projectfloodlight.openflow.types.MacAddress;
 
 import java.util.*;
 
@@ -142,24 +141,24 @@ public class ServerLoadBalancerUtilTest {
 
         // Check contents
         assertThat(transitions.get(0).getFrom().size(), is(1));
-        assertThat(transitions.get(0).getFrom(), contains(new Assignment(IPv4AddressWithMask.of("0.0.0.0/1"), 1)));
+        assertThat(transitions.get(0).getFrom(), contains(new AssignmentWithMask(IPv4AddressWithMask.of("0.0.0.0/1"), 1)));
         assertThat(transitions.get(0).getTo().size(), is(1));
-        assertThat(transitions.get(0).getTo(), contains(new Assignment(IPv4AddressWithMask.of("0.0.0.0/1"), 5)));
+        assertThat(transitions.get(0).getTo(), contains(new AssignmentWithMask(IPv4AddressWithMask.of("0.0.0.0/1"), 5)));
 
         assertThat(transitions.get(1).getFrom().size(), is(1));
-        assertThat(transitions.get(1).getFrom(), contains(new Assignment(IPv4AddressWithMask.of("128.0.0.0/2"), 2)));
+        assertThat(transitions.get(1).getFrom(), contains(new AssignmentWithMask(IPv4AddressWithMask.of("128.0.0.0/2"), 2)));
         assertThat(transitions.get(1).getTo().size(), is(2));
         assertThat(transitions.get(1).getTo(), containsInAnyOrder(
-                new Assignment(IPv4AddressWithMask.of("128.0.0.0/3"), 6),
-                new Assignment(IPv4AddressWithMask.of("160.0.0.0/3"), 7)));
+                new AssignmentWithMask(IPv4AddressWithMask.of("128.0.0.0/3"), 6),
+                new AssignmentWithMask(IPv4AddressWithMask.of("160.0.0.0/3"), 7)));
 
         assertThat(transitions.get(2).getFrom().size(), is(2));
         assertThat(transitions.get(2).getFrom(), containsInAnyOrder(
-                new Assignment(IPv4AddressWithMask.of("192.0.0.0/3"), 3),
-                new Assignment(IPv4AddressWithMask.of("224.0.0.0/3"), 4)));
+                new AssignmentWithMask(IPv4AddressWithMask.of("192.0.0.0/3"), 3),
+                new AssignmentWithMask(IPv4AddressWithMask.of("224.0.0.0/3"), 4)));
         assertThat(transitions.get(2).getTo().size(), is(1));
         assertThat(transitions.get(2).getTo(), contains(
-                new Assignment(IPv4AddressWithMask.of("192.0.0.0/2"), 8)));
+                new AssignmentWithMask(IPv4AddressWithMask.of("192.0.0.0/2"), 8)));
     }
 
     @Test

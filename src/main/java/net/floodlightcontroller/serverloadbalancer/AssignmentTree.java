@@ -27,11 +27,11 @@ public class AssignmentTree {
         return tree;
     }
 
-    public List<Assignment> assignments() {
-        List<Assignment> assignments = new ArrayList<>();
+    public List<AssignmentWithMask> assignments() {
+        List<AssignmentWithMask> assignments = new ArrayList<>();
 
         if (server != null) {
-            assignments.add(new Assignment(prefix, server));
+            assignments.add(new AssignmentWithMask(prefix, server));
         } else if (children != null) {
             assignments.addAll(children[0].assignments());
             assignments.addAll(children[1].assignments());
@@ -171,11 +171,11 @@ public class AssignmentTree {
         return null;
     }
 
-    public List<Assignment> clear() {
-        List<Assignment> clearedAssignments = new ArrayList<>();
+    public List<AssignmentWithMask> clear() {
+        List<AssignmentWithMask> clearedAssignments = new ArrayList<>();
 
         if (server != null) {
-            clearedAssignments.add(new Assignment(prefix, server));
+            clearedAssignments.add(new AssignmentWithMask(prefix, server));
             server = null;
         } else if (children != null) {
             clearedAssignments.addAll(children[0].clear());

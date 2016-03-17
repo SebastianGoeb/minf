@@ -7,10 +7,10 @@ import java.util.Collections;
 import java.util.List;
 
 public class Transition {
-    List<Assignment> from;
-    List<Assignment> to;
+    List<AssignmentWithMask> from;
+    List<AssignmentWithMask> to;
 
-    public Transition(List<Assignment> from, List<Assignment> to) {
+    public Transition(List<AssignmentWithMask> from, List<AssignmentWithMask> to) {
         this.from = from;
         this.to = to;
     }
@@ -18,36 +18,36 @@ public class Transition {
     // Factories
     public static Transition direct(Integer fromServer, IPv4AddressWithMask fromPrefix,
                                     Integer toServer, IPv4AddressWithMask toPrefix) {
-        List<Assignment> from = Collections.singletonList(new Assignment(fromPrefix, fromServer));
-        List<Assignment> to = Collections.singletonList(new Assignment(toPrefix, toServer));
+        List<AssignmentWithMask> from = Collections.singletonList(new AssignmentWithMask(fromPrefix, fromServer));
+        List<AssignmentWithMask> to = Collections.singletonList(new AssignmentWithMask(toPrefix, toServer));
         return new Transition(from, to);
     }
 
     public static Transition merge(Integer toServer, IPv4AddressWithMask toPrefix) {
-        List<Assignment> from = new ArrayList<>();
-        List<Assignment> to = Collections.singletonList(new Assignment(toPrefix, toServer));
+        List<AssignmentWithMask> from = new ArrayList<>();
+        List<AssignmentWithMask> to = Collections.singletonList(new AssignmentWithMask(toPrefix, toServer));
         return new Transition(from, to);
     }
 
     public static Transition split(Integer fromServer, IPv4AddressWithMask fromPrefix) {
-        List<Assignment> from = Collections.singletonList(new Assignment(fromPrefix, fromServer));
-        List<Assignment> to = new ArrayList<>();
+        List<AssignmentWithMask> from = Collections.singletonList(new AssignmentWithMask(fromPrefix, fromServer));
+        List<AssignmentWithMask> to = new ArrayList<>();
         return new Transition(from, to);
     }
 
     public void addFrom(Integer server, IPv4AddressWithMask prefix) {
-        from.add(new Assignment(prefix, server));
+        from.add(new AssignmentWithMask(prefix, server));
     }
 
     public void addTo(Integer server, IPv4AddressWithMask prefix) {
-        to.add(new Assignment(prefix, server));
+        to.add(new AssignmentWithMask(prefix, server));
     }
 
-    public List<Assignment> getFrom() {
+    public List<AssignmentWithMask> getFrom() {
         return from;
     }
 
-    public List<Assignment> getTo() {
+    public List<AssignmentWithMask> getTo() {
         return to;
     }
 

@@ -99,8 +99,8 @@ public class ServerLoadBalancerUtil {
         }
 
         // Pre-assign shared assignments
-        List<Assignment> oldAssignments = oldTree.assignments();
-        for (Assignment assignment : oldAssignments) {
+        List<AssignmentWithMask> oldAssignments = oldTree.assignments();
+        for (AssignmentWithMask assignment : oldAssignments) {
             IPv4AddressWithMask prefix = assignment.getPrefix();
             IPv4Address mask = assignment.getPrefix().getMask();
             Integer server = assignment.getServer();
@@ -119,10 +119,10 @@ public class ServerLoadBalancerUtil {
             for (Integer server : masksEntry.getValue()) {
                 // Find least-cost assignment in new tree
                 AssignmentTree leastCostSubtree = newTree.leastAssignedSubtree(mask);
-                List<Assignment> clearedAssignments = leastCostSubtree.clear();
+                List<AssignmentWithMask> clearedAssignments = leastCostSubtree.clear();
 
                 // Clear out previous assignments to make room for new assignment, but add them back to masks/server list
-                for (Assignment assignment : clearedAssignments) {
+                for (AssignmentWithMask assignment : clearedAssignments) {
                     IPv4Address clearedMask = assignment.getPrefix().getMask();
                     Integer clearedServer = assignment.getServer();
                     if (!masks.containsKey(clearedMask)) {

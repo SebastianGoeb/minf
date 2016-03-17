@@ -34,6 +34,7 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
     private static final int TRANSITION_PRIORITY = 700;
     private static final int IN_PRIORITY = 600;
     private static final int OUT_PRIORITY = 500;
+    private static final int DROP_PRIORITY = 400;
 
     protected static Logger logger;
     protected IFloodlightProviderService floodlightProvider;
@@ -44,7 +45,7 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
     private Map<DatapathId, List<Transition>> transitions;
 
     private Map<DatapathId, List<Match>> transitionMatches;
-    private Map<DatapathId, List<Match>> microflowMatches;
+    private Map<DatapathId, List<Assignment>> microflowAssignments;
 
     // Configuration
     private Config config;
@@ -59,13 +60,11 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
 
     @Override
     public boolean isCallbackOrderingPrereq(OFType type, String name) {
-        // TODO Auto-generated method stub
         return false;
     }
 
     @Override
     public boolean isCallbackOrderingPostreq(OFType type, String name) {
-        // TODO Auto-generated method stub
         return false;
     }
 
@@ -134,7 +133,7 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
         dpids = new ArrayList<>();
         transitions = new HashMap<>();
         transitionMatches = new HashMap<>();
-        microflowMatches = new HashMap<>();
+        microflowAssignments = new HashMap<>();
 
         // REST Service
         restApiService.addRestletRoutable(new ServerLoadBalancerWebRoutable());
@@ -162,23 +161,23 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
                                 .get();
 
                         // Find new assignment matching source IP
-                        Assignment toAssignment = matchingTransition.getTo().stream()
+                        AssignmentWithMask toAssignment = matchingTransition.getTo().stream()
                                 .filter(a -> a.getPrefix().contains(src))
                                 .findFirst()
                                 .get();
 
                         // Find old assignment matching source IP
-                        Assignment fromAssignment = matchingTransition.getFrom().stream()
+                        AssignmentWithMask fromAssignment = matchingTransition.getFrom().stream()
                                 .filter(a -> a.getPrefix().contains(src))
                                 .findFirst()
                                 .get();
 
                         if ((tcp.getFlags() & TCP_SYN) != 0) {
                             // If SYN, direct to new server
-                            installMicroflowRule(dpid, ipv4.getSourceAddress(), toAssignment.getServer());
+                            installMicroflowRule(dpid, new Assignment(ipv4.getSourceAddress(), toAssignment.getServer()));
                         } else {
                             // If non-SYN direct to old server
-                            installMicroflowRule(dpid, ipv4.getSourceAddress(), fromAssignment.getServer());
+                            installMicroflowRule(dpid, new Assignment(ipv4.getSourceAddress(), fromAssignment.getServer()));
                         }
                     }
                 }
@@ -191,23 +190,24 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
                     break;
                 }
 
+                IPv4AddressWithMask removedIPv4Src = (IPv4AddressWithMask) removedMatch.getMasked(MatchField.IPV4_SRC);
                 if (removedMatch.isExact(MatchField.IPV4_SRC)) {
                     // Remove microflow rule
-                    microflowMatches.get(dpid).remove(removedMatch);
+                    microflowAssignments.get(dpid)
+                            .removeIf(assignment -> assignment.getPrefix().equals(removedIPv4Src.getValue()));
                 } else {
                     // Remove transition rule
                     transitionMatches.get(dpid).remove(removedMatch);
 
                     // Find transition corresponding to this rule
-                    IPv4AddressWithMask src = (IPv4AddressWithMask) removedMatch.getMasked(MatchField.IPV4_SRC);
                     Transition matchingTransition = transitions.get(dpid).stream()
-                            .filter(t -> t.prefix().equals(src))
+                            .filter(t -> t.prefix().equals(removedIPv4Src))
                             .findFirst()
                             .orElse(null);
 
                     // If transition is complete, install new permanent rules and delete transition
                     if (matchingTransition != null) {
-                        for (Assignment assignment : matchingTransition.getTo()) {
+                        for (AssignmentWithMask assignment : matchingTransition.getTo()) {
                             installPermanentRule(dpid, assignment);
                         }
                         transitions.get(dpid).remove(matchingTransition);
@@ -239,7 +239,7 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
 
     private void startTransition(DatapathId dpid, Transition transition) {
         // Remove old flows
-        for (Assignment assignment : transition.getFrom()) {
+        for (AssignmentWithMask assignment : transition.getFrom()) {
             removePermanentRule(dpid, assignment);
         }
 
@@ -248,7 +248,7 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
                 .allMatch(a -> a.getServer() != null && a.getServer() == -1);
         if (isAssignment) {
             // Add new permanent flow to controller and remove transition immediately
-            for (Assignment assignment : transition.getTo()) {
+            for (AssignmentWithMask assignment : transition.getTo()) {
                 installPermanentRule(dpid, assignment);
             }
         } else {
@@ -311,16 +311,16 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
         }
     }
 
-    private void installMicroflowRule(DatapathId dpid, IPv4Address src, int serverNum) {
+    private void installMicroflowRule(DatapathId dpid, Assignment assignment) {
         IOFSwitch mySwitch = switchManager.getSwitch(dpid);
         OFFactory factory = mySwitch.getOFFactory();
         Match incomingMatch = factory.buildMatch()
                 .setExact(MatchField.ETH_TYPE, EthType.IPv4)
-                .setExact(MatchField.IPV4_SRC, src)
+                .setExact(MatchField.IPV4_SRC, assignment.getPrefix())
                 .setExact(MatchField.IPV4_DST, IPv4Address.of("1.1.1.1"))
                 .build();
 
-        List<OFAction> incomingActionList = incomingActionList(dpid, serverNum);
+        List<OFAction> incomingActionList = incomingActionList(dpid, assignment.getServer());
 
         OFFlowAdd incomingFlowAdd = factory.buildFlowAdd()
                 .setMatch(incomingMatch)
@@ -333,7 +333,30 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
         mySwitch.write(incomingFlowAdd);
 
         // Record microflow rule
-        microflowMatches.get(dpid).add(incomingMatch);
+        microflowAssignments.get(dpid).add(new Assignment(assignment.getPrefix(), assignment.getServer()));
+    }
+
+    private void removeMicroflowRule(DatapathId dpid, Assignment assignment) {
+        IOFSwitch mySwitch = switchManager.getSwitch(dpid);
+        OFFactory factory = mySwitch.getOFFactory();
+        Match incomingMatch = factory.buildMatch()
+                .setExact(MatchField.ETH_TYPE, EthType.IPv4)
+                .setExact(MatchField.IPV4_SRC, assignment.getPrefix())
+                .setExact(MatchField.IPV4_DST, IPv4Address.of("1.1.1.1"))
+                .build();
+
+        OFFlowDeleteStrict incomingFlowDeleteStrict= factory.buildFlowDeleteStrict()
+                .setMatch(incomingMatch)
+                .setPriority(MICROFLOW_PRIORITY)
+                .build();
+
+        mySwitch.write(incomingFlowDeleteStrict);
+
+        // Record microflow rule
+        microflowAssignments.get(dpid).remove(new Assignment(
+                assignment.getPrefix(),
+                assignment.getServer()
+        ));
     }
 
     private void installTransitionRule(DatapathId dpid, IPv4AddressWithMask prefix) {
@@ -363,7 +386,7 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
         transitionMatches.get(dpid).add(transitionMatch);
     }
 
-    private void installPermanentRule(DatapathId dpid, Assignment assignment) {
+    private void installPermanentRule(DatapathId dpid, AssignmentWithMask assignment) {
         IOFSwitch mySwitch = switchManager.getSwitch(dpid);
         OFFactory factory = mySwitch.getOFFactory();
 
@@ -383,7 +406,7 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
         mySwitch.write(incomingFlowAdd);
     }
 
-    private void removePermanentRule(DatapathId dpid, Assignment assignment) {
+    private void removePermanentRule(DatapathId dpid, AssignmentWithMask assignment) {
         IOFSwitch mySwitch = switchManager.getSwitch(dpid);
         OFFactory factory = mySwitch.getOFFactory();
 
@@ -407,14 +430,14 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
         // Remember switch
         dpids.add(switchId);
         transitionMatches.put(switchId, new ArrayList<>());
-        microflowMatches.put(switchId, new ArrayList<>());
+        microflowAssignments.put(switchId, new ArrayList<>());
 
         // Delete all rules previously on this switch
         // TODO don't reset, continue where we left off
         mySwitch.write(factory.buildFlowDelete().build());
 
         // Handle incoming traffic
-        for (Assignment assignment : assignmentTree.assignments()) {
+        for (AssignmentWithMask assignment : assignmentTree.assignments()) {
             installPermanentRule(switchId, assignment);
         }
 
@@ -439,6 +462,20 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
                 .build();
 
         mySwitch.write(outgoingFlowAdd);
+
+        // Handle remaining traffic
+        Match remainingMatch = factory.buildMatch()
+                .setExact(MatchField.ETH_TYPE, EthType.IPv4)
+                .build();
+        ArrayList<OFAction> remainingActionList = new ArrayList<>();
+
+        OFFlowAdd remainingFlowAdd = factory.buildFlowAdd()
+                .setMatch(remainingMatch)
+                .setActions(remainingActionList)
+                .setPriority(DROP_PRIORITY)
+                .build();
+
+        mySwitch.write(remainingFlowAdd);
     }
 
     @Override
@@ -448,7 +485,7 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
             dpids.remove(switchId);
             transitions.remove(switchId);
             transitionMatches.remove(switchId);
-            microflowMatches.remove(switchId);
+            microflowAssignments.remove(switchId);
         }
     }
 
@@ -475,23 +512,39 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
 
     @Override
     public void removeServers(List<Integer> ids) {
+        int numTransitions = transitions.values().stream()
+                .mapToInt(List::size)
+                .sum();
+        if (numTransitions > 0) {
+            throw new IllegalStateException("Currently in transition. No modification of servers allowed.");
+        }
+
         for (Integer id : ids) {
             // Re-assign prefixes to -1 (drop)
             for (AssignmentTree tree : assignmentTree.getSubtreesAssignedTo(id)) {
                 for (DatapathId dpid : dpids) {
-                    removePermanentRule(dpid, new Assignment(tree.prefix, tree.server));
-                    installPermanentRule(dpid, new Assignment(tree.prefix, -1));
+                    removePermanentRule(dpid, new AssignmentWithMask(tree.prefix, tree.server));
+                    installPermanentRule(dpid, new AssignmentWithMask(tree.prefix, -1));
                 }
                 tree.server = -1;
             }
 
             // Delete any microflow rules remaining
-            // TODO Delete any microflow rules remaining
+            for (Map.Entry<DatapathId, List<Assignment>> entry : microflowAssignments.entrySet()) {
+                DatapathId dpid = entry.getKey();
+                List<Assignment> assignments = entry.getValue();
+                List<Assignment> removedAssignments = assignments.stream()
+                        .filter(assignment -> assignment.getServer().equals(id))
+                        .collect(Collectors.toList());
+                removedAssignments.forEach(removedAssignment -> removeMicroflowRule(dpid, removedAssignment));
+            }
+
             Server server = config.getServers().get(id);
             config.removeServer(server);
             logger.info("Removed " + server.toString());
         }
     }
+
     @Override
     public void removeAllServers() {
         removeServers(config.getServers().keySet().stream().collect(Collectors.toList()));

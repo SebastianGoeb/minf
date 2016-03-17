@@ -37,5 +37,11 @@ public class ServerDeleteResource extends ServerResource {
                     .collect(Collectors.toList());
             slbService.removeServers(ids);
         }
+
+        // Adjust maxPrefixLength
+        slbService.autoSetMaxPrefixLength();
+
+        // Start transition
+        slbService.requestTransition();
     }
 }

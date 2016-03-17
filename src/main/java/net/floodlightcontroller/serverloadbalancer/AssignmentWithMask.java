@@ -1,21 +1,21 @@
 package net.floodlightcontroller.serverloadbalancer;
 
-import org.projectfloodlight.openflow.types.IPv4Address;
+import org.projectfloodlight.openflow.types.IPv4AddressWithMask;
 
-public class Assignment {
-    private IPv4Address prefix;
+public class AssignmentWithMask {
+    private IPv4AddressWithMask prefix;
     private Integer server;
 
-    public Assignment(IPv4Address prefix, Integer server) {
+    public AssignmentWithMask(IPv4AddressWithMask prefix, Integer server) {
         this.prefix = prefix;
         this.server = server;
     }
 
-    public IPv4Address getPrefix() {
+    public IPv4AddressWithMask getPrefix() {
         return prefix;
     }
 
-    public Assignment setPrefix(IPv4Address prefix) {
+    public AssignmentWithMask setPrefix(IPv4AddressWithMask prefix) {
         this.prefix = prefix;
         return this;
     }
@@ -24,15 +24,15 @@ public class Assignment {
         return server;
     }
 
-    public Assignment setServer(Integer server) {
+    public AssignmentWithMask setServer(Integer server) {
         this.server = server;
         return this;
     }
 
     @Override
     public boolean equals(Object obj) {
-        if (obj instanceof Assignment) {
-            return server == ((Assignment) obj).server && prefix.equals(((Assignment) obj).prefix);
+        if (obj instanceof AssignmentWithMask) {
+            return server.equals(((AssignmentWithMask) obj).server) && prefix.equals(((AssignmentWithMask) obj).prefix);
         }
         return false;
     }
