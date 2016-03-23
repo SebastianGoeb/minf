@@ -1,24 +1,33 @@
 package net.floodlightcontroller.serverloadbalancer;
 
 import net.floodlightcontroller.core.module.IFloodlightService;
-import org.projectfloodlight.openflow.types.DatapathId;
+import net.floodlightcontroller.serverloadbalancer.ServerLoadBalancer.Stats;
+import net.floodlightcontroller.serverloadbalancer.network.LoadBalanceTarget;
+import net.floodlightcontroller.serverloadbalancer.network.Server;
+import net.floodlightcontroller.serverloadbalancer.network.Switch;
 
 import java.util.List;
-import java.util.Map;
 
 public interface IServerLoadBalancerService extends IFloodlightService {
-    public void requestTransition();
-    public List<DatapathId> getDpids();
+    void setMaxPrefixLength();
+    void setMaxPrefixLength(int maxPrefixLength);
 
     // Servers
-    public void addServer(Server server);
-    public Server getServer(int id);
-    public void removeServers(List<Integer> ids);
-    public void removeAllServers();
+    void addServer(Server server);
+    List<Server> getServers();
+    void removeServer(Server server);
 
-    //Stats
-    public Map<Server, Long> getStats(DatapathId dpid);
-    public int numRules(DatapathId dpid);
+    // Switches
+    void addSwitch(Switch sw);
+    List<Switch> getSwitches();
+    void removeSwitch(Switch sw);
 
-    public void autoSetMaxPrefixLength();
+    // Targets
+    void addTarget(Switch sw, String portName, LoadBalanceTarget target);
+
+    // Transitions
+    void requestTransition(boolean fromCurrent);
+
+    // Stats methods
+    Stats getStats(Switch sw);
 }

@@ -1,7 +1,7 @@
 package net.floodlightcontroller.serverloadbalancer.web;
 
 import net.floodlightcontroller.serverloadbalancer.IServerLoadBalancerService;
-import net.floodlightcontroller.serverloadbalancer.network.Server;
+import net.floodlightcontroller.serverloadbalancer.network.Switch;
 import net.floodlightcontroller.staticflowentry.web.ListStaticFlowEntriesResource;
 import org.restlet.data.Status;
 import org.restlet.resource.Post;
@@ -13,42 +13,39 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 
-public class ServerCreateResource extends ServerResource {
+public class SwitchCreateResource extends ServerResource {
     protected static Logger log = LoggerFactory.getLogger(ListStaticFlowEntriesResource.class);
 
     @Post("json")
-    public List<Server> createServer(String fmJson) throws IOException {
+    public List<Switch> createSwitch(String fmJson) throws IOException {
         IServerLoadBalancerService slbService =
                 (IServerLoadBalancerService) getContext().getAttributes()
                         .get(IServerLoadBalancerService.class.getCanonicalName());
 
         // Parse JSON
-        List<Server> servers;
+        List<Switch> switches;
         if (fmJson.trim().startsWith("{")) {
-            servers = Collections.singletonList(Server.fromJson(fmJson));
+            switches = Collections.singletonList(Switch.fromJson(fmJson));
         } else if (fmJson.trim().startsWith("[")) {
-            servers = Server.fromJsonList(fmJson);
+            switches = Switch.fromJsonList(fmJson);
         } else {
-            setStatus(Status.CLIENT_ERROR_BAD_REQUEST);
+            setStatus(Status.CLIENT_ERROR_BAD_REQUEST, "Parse error");
             return null;
         }
 
-        for (Server server : servers) {
-            // Validate input
-            if (server.getNwAddress() == null) {
+        // Validate input
+        for (Switch sw : switches) {
+            if (sw.getDpid() == null) {
                 setStatus(Status.CLIENT_ERROR_UNPROCESSABLE_ENTITY, "Missing IP address");
-                return null;
-            } else if (server.getDlAddress() == null) {
-                setStatus(Status.CLIENT_ERROR_UNPROCESSABLE_ENTITY, "Missing MAC address");
                 return null;
             }
 
-            // Add server
-            slbService.addServer(server);
+            // Add switch
+            slbService.addSwitch(sw);
         }
 
         // Construct response
         setStatus(Status.SUCCESS_CREATED);
-        return servers;
+        return switches;
     }
 }

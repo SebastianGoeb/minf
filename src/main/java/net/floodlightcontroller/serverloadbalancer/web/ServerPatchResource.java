@@ -1,14 +1,9 @@
 package net.floodlightcontroller.serverloadbalancer.web;
 
-import net.floodlightcontroller.serverloadbalancer.IServerLoadBalancerService;
-import net.floodlightcontroller.serverloadbalancer.Server;
 import net.floodlightcontroller.staticflowentry.web.ListStaticFlowEntriesResource;
-import org.restlet.resource.Patch;
 import org.restlet.resource.ServerResource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.io.IOException;
 
 public class ServerPatchResource extends ServerResource {
     protected static Logger log = LoggerFactory.getLogger(ListStaticFlowEntriesResource.class);

@@ -1,6 +1,7 @@
-package net.floodlightcontroller.serverloadbalancer;
+package net.floodlightcontroller.serverloadbalancer.network;
 
 import com.fasterxml.jackson.annotation.JsonGetter;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -14,9 +15,8 @@ import java.io.IOException;
 import java.util.List;
 
 public class Server extends LoadBalanceTarget {
-    private static int nextId = 0;
-
     protected static Logger logger = LoggerFactory.getLogger(Server.class);
+    private static int nextId = 0;
 
     @JsonProperty("ip")
     private IPv4Address nwAddress;
@@ -24,36 +24,28 @@ public class Server extends LoadBalanceTarget {
     @JsonProperty("mac")
     private MacAddress dlAddress;
 
-    @JsonProperty("port")
-    private String port;
-
     @JsonProperty("weight")
     private double weight;
 
-    @JsonProperty("id")
-    private int id;
-
+    @JsonIgnore
     private boolean safeToDelete;
 
     private Server() {
-        this.id = nextId++;
+        super();
         this.safeToDelete = false;
     }
 
-    public static Server create(IPv4Address nwAddress, MacAddress dlAddress, String port, double weight) {
+    public static Server create(IPv4Address nwAddress, MacAddress dlAddress, double weight) {
         return new Server()
                 .setNwAddress(nwAddress)
                 .setDlAddress(dlAddress)
-                .setPort(port)
-                .setWeight(weight)
-                .setId(nextId++);
+                .setWeight(weight);
     }
 
-    public static Server create(String nwAddress, String dlAddress, String port, double weight) {
+    public static Server create(String nwAddress, String dlAddress, double weight) {
         return create(
                 IPv4Address.of(nwAddress),
                 MacAddress.of(dlAddress),
-                port,
                 weight);
     }
 
@@ -64,7 +56,8 @@ public class Server extends LoadBalanceTarget {
 
     public static List<Server> fromJsonList(String fmJson) throws IOException {
         ObjectMapper mapper = new ObjectMapper();
-        return mapper.readValue(fmJson, new TypeReference<List<Server>>() {});
+        return mapper.readValue(fmJson, new TypeReference<List<Server>>() {
+        });
     }
 
     // Regular properties
@@ -87,15 +80,6 @@ public class Server extends LoadBalanceTarget {
         return this;
     }
 
-    public String getPort() {
-        return port;
-    }
-
-    public Server setPort(String port) {
-        this.port = port;
-        return this;
-    }
-
     public double getWeight() {
         return weight;
     }
@@ -109,11 +93,6 @@ public class Server extends LoadBalanceTarget {
         return id;
     }
 
-    public Server setId(int id) {
-        this.id = id;
-        return this;
-    }
-
     public boolean isSafeToDelete() {
         return safeToDelete;
     }
@@ -125,19 +104,14 @@ public class Server extends LoadBalanceTarget {
 
     // JSON properties
 
-    @JsonSetter("ip")
-    public Server setJsonNwAddress(String s) {
-        return this.setNwAddress(IPv4Address.of(s));
-    }
-
     @JsonGetter("ip")
     public String getJsonNwAddress() {
         return this.getNwAddress().toString();
     }
 
-    @JsonSetter("mac")
-    public Server setJsonDlAddress(String s) {
-        return this.setDlAddress(MacAddress.of(s));
+    @JsonSetter("ip")
+    public Server setJsonNwAddress(String s) {
+        return this.setNwAddress(IPv4Address.of(s));
     }
 
     @JsonGetter("mac")
@@ -145,8 +119,20 @@ public class Server extends LoadBalanceTarget {
         return this.getDlAddress().toString();
     }
 
+    @JsonSetter("mac")
+    public Server setJsonDlAddress(String s) {
+        return this.setDlAddress(MacAddress.of(s));
+    }
+
     @Override
     public String toString() {
-        return String.format("Server %d IP %s MAC %s port %s weight %.2f", this.id, this.nwAddress, this.dlAddress, this.port, this.weight);
+        return String.format("Server %d IP %s weight %.2f", this.id, this.nwAddress, this.weight);
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        return (this == obj)
+                || (obj instanceof Server
+                && id == ((Server) obj).id);
     }
 }
