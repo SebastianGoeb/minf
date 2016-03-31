@@ -93,6 +93,7 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
 
         switch (msg.getType()) {
             case PACKET_IN:
+                log.info("Packet in");
                 Ethernet eth = IFloodlightProviderService.bcStore.get(cntx, IFloodlightProviderService.CONTEXT_PI_PAYLOAD);
                 if (EthType.IPv4.getValue() == eth.getEtherType()) {
                     IPv4 ipv4 = (IPv4) eth.getPayload();
@@ -103,7 +104,10 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
                         IPv4Address src = ipv4.getSourceAddress();
 
                         ForwardingTarget target = assignmentTree.findTarget(src);
+                        log.info("Flow for " + target);
                         if (target instanceof TransitionTarget) {
+                            log.info("Flags " + Integer.toBinaryString(tcp.getFlags()));
+                            log.info("SYN " + ((tcp.getFlags() & TCP_SYN) != 0));
                             TransitionTarget transitionTarget = (TransitionTarget) target;
                             ForwardingTarget microflowTarget = (tcp.getFlags() & TCP_SYN) != 0
                                     ? transitionTarget.getNewTarget()
@@ -111,6 +115,7 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
                             Assignment microflowAssignment = new Assignment(
                                     IPv4AddressWithMask.of(src, IPv4Address.NO_MASK),
                                     microflowTarget);
+                            log.info("Assigned to " + microflowAssignment);
                             installRule(sw, microflowAssignment);
                             microflowAssignments.get(dpid).add(microflowAssignment);
                         }
@@ -653,11 +658,13 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
 
                     if (output != null) {
                         // Target connected to this port
-                        LoadBalanceTarget target = s.getTarget(switchBackend.getPort(output.getPort()).getName());
-
-                        // Record load
-                        if (target != null) {
-                            stats.load.put(target, stats.load.get(target) + entry.getByteCount().getValue());
+                        OFPortDesc portDesc = switchBackend.getPort(output.getPort());
+                        if (!Objects.equals(output.getPort(), OFPort.CONTROLLER)) {
+                            LoadBalanceTarget target = s.getTarget(portDesc.getName());
+                            // Record load
+                            if (target != null) {
+                                stats.load.put(target, stats.load.get(target) + entry.getByteCount().getValue());
+                            }
                         }
                     }
                     stats.numRules += 1;

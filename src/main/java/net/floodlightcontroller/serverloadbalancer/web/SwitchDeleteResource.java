@@ -1,9 +1,13 @@
 package net.floodlightcontroller.serverloadbalancer.web;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import net.floodlightcontroller.serverloadbalancer.IServerLoadBalancerService;
+import net.floodlightcontroller.serverloadbalancer.network.Server;
 import net.floodlightcontroller.serverloadbalancer.network.Switch;
 import net.floodlightcontroller.staticflowentry.web.ListStaticFlowEntriesResource;
 import org.restlet.resource.Delete;
+import org.restlet.resource.Put;
 import org.restlet.resource.ServerResource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -11,6 +15,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 public class SwitchDeleteResource extends ServerResource {
     protected static Logger log = LoggerFactory.getLogger(ListStaticFlowEntriesResource.class);
