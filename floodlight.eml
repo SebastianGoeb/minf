@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<component LANGUAGE_LEVEL="JDK_1_8" jdk="1.8" jdk_type="JavaSDK">
+<component LANGUAGE_LEVEL="JDK_1_8" inheritJdk="true">
 	<exclude-output/>
 	<contentEntry url="file://$MODULE_DIR$"/>
 	<lib name="args4j-2.0.16.jar" scope="COMPILE">
@@ -35,30 +35,6 @@
 	<lib name="j3dutils.jar" scope="COMPILE">
 		<relative-module-cls project-related="jar://$PROJECT_DIR$/lib/j3dutils.jar!/"/>
 	</lib>
-	<lib name="jackson-annotations-2.1.4.jar" scope="COMPILE">
-		<relative-module-cls project-related="jar://$PROJECT_DIR$/lib/jackson-annotations-2.1.4.jar!/"/>
-	</lib>
-	<lib name="jackson-core-2.1.4.jar" scope="COMPILE">
-		<relative-module-cls project-related="jar://$PROJECT_DIR$/lib/jackson-core-2.1.4.jar!/"/>
-	</lib>
-	<lib name="jackson-databind-2.1.4.jar" scope="COMPILE">
-		<relative-module-cls project-related="jar://$PROJECT_DIR$/lib/jackson-databind-2.1.4.jar!/"/>
-	</lib>
-	<lib name="jackson-dataformat-csv-2.1.4.jar" scope="COMPILE">
-		<relative-module-cls project-related="jar://$PROJECT_DIR$/lib/jackson-dataformat-csv-2.1.4.jar!/"/>
-	</lib>
-	<lib name="jackson-dataformat-smile-2.1.4.jar" scope="COMPILE">
-		<relative-module-cls project-related="jar://$PROJECT_DIR$/lib/jackson-dataformat-smile-2.1.4.jar!/"/>
-	</lib>
-	<lib name="jackson-dataformat-xml-2.1.4.jar" scope="COMPILE">
-		<relative-module-cls project-related="jar://$PROJECT_DIR$/lib/jackson-dataformat-xml-2.1.4.jar!/"/>
-	</lib>
-	<lib name="jackson-dataformat-yaml-2.1.4.jar" scope="COMPILE">
-		<relative-module-cls project-related="jar://$PROJECT_DIR$/lib/jackson-dataformat-yaml-2.1.4.jar!/"/>
-	</lib>
-	<lib name="junit-4.8.2.jar" scope="COMPILE">
-		<relative-module-cls project-related="jar://$PROJECT_DIR$/lib/junit-4.8.2.jar!/"/>
-	</lib>
 	<lib name="jython-2.5.2.jar" scope="COMPILE">
 		<relative-module-cls project-related="jar://$PROJECT_DIR$/lib/jython-2.5.2.jar!/"/>
 	</lib>
@@ -71,35 +47,8 @@
 	<lib name="logback-core-1.0.0.jar" scope="COMPILE">
 		<relative-module-cls project-related="jar://$PROJECT_DIR$/lib/logback-core-1.0.0.jar!/"/>
 	</lib>
-	<lib name="netty-3.2.6.Final.jar" scope="COMPILE">
-		<relative-module-cls project-related="jar://$PROJECT_DIR$/lib/netty-3.2.6.Final.jar!/"/>
-	</lib>
 	<lib name="objenesis-1.2.jar" scope="COMPILE">
 		<relative-module-cls project-related="jar://$PROJECT_DIR$/lib/objenesis-1.2.jar!/"/>
-	</lib>
-	<lib name="openflowj-0.9.0-SNAPSHOT-javadoc.jar" scope="COMPILE">
-		<relative-module-cls project-related="jar://$PROJECT_DIR$/lib/openflowj-0.9.0-SNAPSHOT-javadoc.jar!/"/>
-	</lib>
-	<lib name="openflowj-0.9.0-SNAPSHOT.jar" scope="COMPILE">
-		<relative-module-cls project-related="jar://$PROJECT_DIR$/lib/openflowj-0.9.0-SNAPSHOT.jar!/"/>
-	</lib>
-	<lib name="org.easymock-3.1.jar" scope="COMPILE">
-		<relative-module-cls project-related="jar://$PROJECT_DIR$/lib/org.easymock-3.1.jar!/"/>
-	</lib>
-	<lib name="org.restlet-2.2M3.jar" scope="COMPILE">
-		<relative-module-cls project-related="jar://$PROJECT_DIR$/lib/org.restlet-2.2M3.jar!/"/>
-	</lib>
-	<lib name="org.restlet.ext.jackson-2.2M3.jar" scope="COMPILE">
-		<relative-module-cls project-related="jar://$PROJECT_DIR$/lib/org.restlet.ext.jackson-2.2M3.jar!/"/>
-	</lib>
-	<lib name="org.restlet.ext.simple-2.2M3.jar" scope="COMPILE">
-		<relative-module-cls project-related="jar://$PROJECT_DIR$/lib/org.restlet.ext.simple-2.2M3.jar!/"/>
-	</lib>
-	<lib name="org.restlet.ext.slf4j-2.2M3.jar" scope="COMPILE">
-		<relative-module-cls project-related="jar://$PROJECT_DIR$/lib/org.restlet.ext.slf4j-2.2M3.jar!/"/>
-	</lib>
-	<lib name="simple-5.1.1.jar" scope="COMPILE">
-		<relative-module-cls project-related="jar://$PROJECT_DIR$/lib/simple-5.1.1.jar!/"/>
 	</lib>
 	<lib name="slf4j-api-1.6.4.jar" scope="COMPILE">
 		<relative-module-cls project-related="jar://$PROJECT_DIR$/lib/slf4j-api-1.6.4.jar!/"/>
