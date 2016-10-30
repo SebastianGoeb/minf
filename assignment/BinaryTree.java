@@ -1,7 +1,7 @@
-package net.floodlightcontroller.serverloadbalancer.assignment;
+package net.floodlightcontroller.proactiveloadbalancer.assignment;
 
-import net.floodlightcontroller.serverloadbalancer.network.ForwardingTarget;
-import net.floodlightcontroller.serverloadbalancer.network.TransitionTarget;
+import net.floodlightcontroller.proactiveloadbalancer.network.ForwardingTarget;
+import net.floodlightcontroller.proactiveloadbalancer.network.TransitionTarget;
 import org.projectfloodlight.openflow.types.IPv4Address;
 import org.projectfloodlight.openflow.types.IPv4AddressWithMask;
 
@@ -11,8 +11,6 @@ import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
-import static org.python.core.PySystemState.prefix;
 
 public class BinaryTree {
     private static List<Assignment> constraints;
@@ -133,8 +131,9 @@ public class BinaryTree {
     private class Node {
         private ForwardingTarget target; // TODO just ID?
         private Node[] children;
+        private IPv4AddressWithMask prefix;
 
-        private Node(ForwardingTarget target) {
+        private Node(IPv4AddressWithMask prefix, ForwardingTarget target) {
             if (prefix == null) {
                 throw new IllegalArgumentException("null is not a valid prefix");
             } else if (target == null) {

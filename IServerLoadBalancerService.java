@@ -1,10 +1,10 @@
-package net.floodlightcontroller.serverloadbalancer;
+package net.floodlightcontroller.proactiveloadbalancer;
 
 import net.floodlightcontroller.core.module.IFloodlightService;
-import net.floodlightcontroller.serverloadbalancer.ServerLoadBalancer.Stats;
-import net.floodlightcontroller.serverloadbalancer.network.LoadBalanceTarget;
-import net.floodlightcontroller.serverloadbalancer.network.Server;
-import net.floodlightcontroller.serverloadbalancer.network.Switch;
+import net.floodlightcontroller.proactiveloadbalancer.ServerLoadBalancer.Stats;
+import net.floodlightcontroller.proactiveloadbalancer.network.LoadBalanceTarget;
+import net.floodlightcontroller.proactiveloadbalancer.network.Server;
+import net.floodlightcontroller.proactiveloadbalancer.network.Switch;
 
 import java.util.List;
 

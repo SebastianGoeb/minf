@@ -1,4 +1,4 @@
-package net.floodlightcontroller.serverloadbalancer;
+package net.floodlightcontroller.proactiveloadbalancer;
 
 import com.fasterxml.jackson.annotation.JsonGetter;
 import net.floodlightcontroller.core.*;
@@ -11,11 +11,11 @@ import net.floodlightcontroller.packet.Ethernet;
 import net.floodlightcontroller.packet.IPv4;
 import net.floodlightcontroller.packet.TCP;
 import net.floodlightcontroller.restserver.IRestApiService;
-import net.floodlightcontroller.serverloadbalancer.assignment.Assignment;
-import net.floodlightcontroller.serverloadbalancer.assignment.AssignmentTree;
-import net.floodlightcontroller.serverloadbalancer.assignment.AssignmentTree.Changes;
-import net.floodlightcontroller.serverloadbalancer.network.*;
-import net.floodlightcontroller.serverloadbalancer.web.ServerLoadBalancerWebRoutable;
+import net.floodlightcontroller.proactiveloadbalancer.assignment.Assignment;
+import net.floodlightcontroller.proactiveloadbalancer.assignment.AssignmentTree;
+import net.floodlightcontroller.proactiveloadbalancer.assignment.AssignmentTree.Changes;
+import net.floodlightcontroller.proactiveloadbalancer.network.*;
+import net.floodlightcontroller.proactiveloadbalancer.web.ServerLoadBalancerWebRoutable;
 import net.floodlightcontroller.threadpool.IThreadPoolService;
 import org.projectfloodlight.openflow.protocol.*;
 import org.projectfloodlight.openflow.protocol.OFFlowAdd.Builder;
@@ -95,7 +95,7 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
             case PACKET_IN:
                 log.info("Packet in");
                 Ethernet eth = IFloodlightProviderService.bcStore.get(cntx, IFloodlightProviderService.CONTEXT_PI_PAYLOAD);
-                if (EthType.IPv4.getValue() == eth.getEtherType()) {
+                if (EthType.IPv4 == eth.getEtherType()) {
                     IPv4 ipv4 = (IPv4) eth.getPayload();
 
                     if (ipv4.getProtocol().equals(IpProtocol.TCP)) {
@@ -704,4 +704,10 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
             return load.get(target);
         }
     }
+
+	@Override
+	public void switchDeactivated(DatapathId switchId) {
+		// TODO Auto-generated method stub
+		
+	}
 }

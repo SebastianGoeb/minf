@@ -1,8 +1,7 @@
-package net.floodlightcontroller.serverloadbalancer.web;
+package net.floodlightcontroller.proactiveloadbalancer.web;
 
-import net.floodlightcontroller.serverloadbalancer.IServerLoadBalancerService;
-import net.floodlightcontroller.serverloadbalancer.network.Server;
-import net.floodlightcontroller.staticflowentry.web.ListStaticFlowEntriesResource;
+import net.floodlightcontroller.proactiveloadbalancer.IServerLoadBalancerService;
+import net.floodlightcontroller.proactiveloadbalancer.network.Server;
 import org.restlet.resource.Delete;
 import org.restlet.resource.ServerResource;
 import org.slf4j.Logger;
@@ -13,7 +12,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class ServerDeleteResource extends ServerResource {
-    protected static Logger log = LoggerFactory.getLogger(ListStaticFlowEntriesResource.class);
+    protected static Logger log = LoggerFactory.getLogger(ServerDeleteResource.class);
 
 
     @Delete("json")

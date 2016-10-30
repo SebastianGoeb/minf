@@ -1,4 +1,4 @@
-package net.floodlightcontroller.serverloadbalancer.web;
+package net.floodlightcontroller.proactiveloadbalancer.web;
 
 import net.floodlightcontroller.restserver.RestletRoutable;
 import org.restlet.Context;

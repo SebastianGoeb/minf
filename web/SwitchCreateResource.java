@@ -1,8 +1,7 @@
-package net.floodlightcontroller.serverloadbalancer.web;
+package net.floodlightcontroller.proactiveloadbalancer.web;
 
-import net.floodlightcontroller.serverloadbalancer.IServerLoadBalancerService;
-import net.floodlightcontroller.serverloadbalancer.network.Switch;
-import net.floodlightcontroller.staticflowentry.web.ListStaticFlowEntriesResource;
+import net.floodlightcontroller.proactiveloadbalancer.IServerLoadBalancerService;
+import net.floodlightcontroller.proactiveloadbalancer.network.Switch;
 import org.restlet.data.Status;
 import org.restlet.resource.Post;
 import org.restlet.resource.ServerResource;
@@ -14,7 +13,7 @@ import java.util.Collections;
 import java.util.List;
 
 public class SwitchCreateResource extends ServerResource {
-    protected static Logger log = LoggerFactory.getLogger(ListStaticFlowEntriesResource.class);
+    protected static Logger log = LoggerFactory.getLogger(SwitchCreateResource.class);
 
     @Post("json")
     public List<Switch> createSwitch(String fmJson) throws IOException {

@@ -1,7 +1,7 @@
-package net.floodlightcontroller.serverloadbalancer.assignment;
+package net.floodlightcontroller.proactiveloadbalancer.assignment;
 
-import net.floodlightcontroller.serverloadbalancer.network.ForwardingTarget;
-import net.floodlightcontroller.serverloadbalancer.network.TransitionTarget;
+import net.floodlightcontroller.proactiveloadbalancer.network.ForwardingTarget;
+import net.floodlightcontroller.proactiveloadbalancer.network.TransitionTarget;
 import org.projectfloodlight.openflow.types.IPv4Address;
 import org.projectfloodlight.openflow.types.IPv4AddressWithMask;
 

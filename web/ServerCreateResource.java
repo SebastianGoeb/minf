@@ -1,10 +1,9 @@
-package net.floodlightcontroller.serverloadbalancer.web;
+package net.floodlightcontroller.proactiveloadbalancer.web;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import net.floodlightcontroller.serverloadbalancer.IServerLoadBalancerService;
-import net.floodlightcontroller.serverloadbalancer.network.Server;
-import net.floodlightcontroller.staticflowentry.web.ListStaticFlowEntriesResource;
+import net.floodlightcontroller.proactiveloadbalancer.IServerLoadBalancerService;
+import net.floodlightcontroller.proactiveloadbalancer.network.Server;
 import org.restlet.data.Status;
 import org.restlet.resource.Post;
 import org.restlet.resource.Put;
@@ -19,7 +18,7 @@ import java.util.List;
 import java.util.Map;
 
 public class ServerCreateResource extends ServerResource {
-    protected static Logger log = LoggerFactory.getLogger(ListStaticFlowEntriesResource.class);
+    protected static Logger log = LoggerFactory.getLogger(ServerCreateResource.class);
 
     @Post("json")
     public List<Server> createServer(String fmJson) throws IOException {

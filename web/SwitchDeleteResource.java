@@ -1,11 +1,10 @@
-package net.floodlightcontroller.serverloadbalancer.web;
+package net.floodlightcontroller.proactiveloadbalancer.web;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import net.floodlightcontroller.serverloadbalancer.IServerLoadBalancerService;
-import net.floodlightcontroller.serverloadbalancer.network.Server;
-import net.floodlightcontroller.serverloadbalancer.network.Switch;
-import net.floodlightcontroller.staticflowentry.web.ListStaticFlowEntriesResource;
+import net.floodlightcontroller.proactiveloadbalancer.IServerLoadBalancerService;
+import net.floodlightcontroller.proactiveloadbalancer.network.Server;
+import net.floodlightcontroller.proactiveloadbalancer.network.Switch;
 import org.restlet.resource.Delete;
 import org.restlet.resource.Put;
 import org.restlet.resource.ServerResource;
@@ -18,7 +17,7 @@ import java.util.List;
 import java.util.Map;
 
 public class SwitchDeleteResource extends ServerResource {
-    protected static Logger log = LoggerFactory.getLogger(ListStaticFlowEntriesResource.class);
+    protected static Logger log = LoggerFactory.getLogger(SwitchDeleteResource.class);
 
     @Delete("json")
     public void deleteSwitch() throws IOException {

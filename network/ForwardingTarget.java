@@ -1,4 +1,4 @@
-package net.floodlightcontroller.serverloadbalancer.network;
+package net.floodlightcontroller.proactiveloadbalancer.network;
 
 public interface ForwardingTarget {
     ForwardingTarget NONE = new ForwardingTarget() {

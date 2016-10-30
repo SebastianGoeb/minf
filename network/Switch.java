@@ -1,12 +1,12 @@
-package net.floodlightcontroller.serverloadbalancer.network;
+package net.floodlightcontroller.proactiveloadbalancer.network;
 
 import com.fasterxml.jackson.annotation.JsonGetter;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import net.floodlightcontroller.serverloadbalancer.IServerLoadBalancerService;
-import net.floodlightcontroller.serverloadbalancer.web.SwitchTargetCreateResource.Link;
+import net.floodlightcontroller.proactiveloadbalancer.IServerLoadBalancerService;
+import net.floodlightcontroller.proactiveloadbalancer.web.SwitchTargetCreateResource.Link;
 import org.projectfloodlight.openflow.types.DatapathId;
 import org.python.google.common.collect.BiMap;
 import org.python.google.common.collect.HashBiMap;

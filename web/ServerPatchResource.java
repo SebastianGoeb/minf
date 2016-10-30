@@ -1,12 +1,11 @@
-package net.floodlightcontroller.serverloadbalancer.web;
+package net.floodlightcontroller.proactiveloadbalancer.web;
 
-import net.floodlightcontroller.staticflowentry.web.ListStaticFlowEntriesResource;
 import org.restlet.resource.ServerResource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class ServerPatchResource extends ServerResource {
-    protected static Logger log = LoggerFactory.getLogger(ListStaticFlowEntriesResource.class);
+    protected static Logger log = LoggerFactory.getLogger(ServerPatchResource.class);
 
 //
 //    @Patch("json")

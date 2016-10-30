@@ -1,9 +1,8 @@
-package net.floodlightcontroller.serverloadbalancer.web;
+package net.floodlightcontroller.proactiveloadbalancer.web;
 
-import net.floodlightcontroller.serverloadbalancer.IServerLoadBalancerService;
-import net.floodlightcontroller.serverloadbalancer.ServerLoadBalancer.Stats;
-import net.floodlightcontroller.serverloadbalancer.network.LoadBalanceTarget;
-import net.floodlightcontroller.staticflowentry.web.ListStaticFlowEntriesResource;
+import net.floodlightcontroller.proactiveloadbalancer.IServerLoadBalancerService;
+import net.floodlightcontroller.proactiveloadbalancer.ServerLoadBalancer.Stats;
+import net.floodlightcontroller.proactiveloadbalancer.network.LoadBalanceTarget;
 import org.restlet.data.Status;
 import org.restlet.resource.Get;
 import org.restlet.resource.ServerResource;
@@ -15,7 +14,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 public class ServerLoadBalancerStatsResource extends ServerResource {
-    protected static Logger log = LoggerFactory.getLogger(ListStaticFlowEntriesResource.class);
+    protected static Logger log = LoggerFactory.getLogger(ServerLoadBalancerStatsResource.class);
 
 
     @Get("json")

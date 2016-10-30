@@ -1,13 +1,12 @@
-package net.floodlightcontroller.serverloadbalancer.web;
+package net.floodlightcontroller.proactiveloadbalancer.web;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.floodlightcontroller.core.internal.IOFSwitchService;
-import net.floodlightcontroller.serverloadbalancer.IServerLoadBalancerService;
-import net.floodlightcontroller.serverloadbalancer.network.LoadBalanceTarget;
-import net.floodlightcontroller.serverloadbalancer.network.Switch;
-import net.floodlightcontroller.staticflowentry.web.ListStaticFlowEntriesResource;
+import net.floodlightcontroller.proactiveloadbalancer.IServerLoadBalancerService;
+import net.floodlightcontroller.proactiveloadbalancer.network.LoadBalanceTarget;
+import net.floodlightcontroller.proactiveloadbalancer.network.Switch;
 import org.projectfloodlight.openflow.types.DatapathId;
 import org.restlet.data.Status;
 import org.restlet.resource.Post;
@@ -20,7 +19,7 @@ import java.util.Collections;
 import java.util.List;
 
 public class SwitchTargetCreateResource extends ServerResource {
-    protected static Logger log = LoggerFactory.getLogger(ListStaticFlowEntriesResource.class);
+    protected static Logger log = LoggerFactory.getLogger(SwitchTargetCreateResource.class);
 
     @Post("json")
     public List<Link> createSwitchTarget(String fmJson) throws IOException {
