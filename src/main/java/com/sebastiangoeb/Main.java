@@ -7,12 +7,28 @@ import java.io.OutputStream;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import spark.Spark;
+
 public class Main {
 
 	private static final int BUFFER_SIZE = 64 * 1024; // 64 KB
 
 	public static void main(String[] args) {
 		port(8080);
+		get("/stop", (req, res) -> {
+			new Thread() {
+				public void run() {
+					try {
+						Thread.sleep(100);
+						Spark.stop();
+					} catch (InterruptedException e) {
+						e.printStackTrace();
+					}
+				}
+			}.start();
+			res.header("Content-Length", "0");
+			return "";
+		});
 		get("/:bytes", (req, res) -> {
 			// Parse params
 			long totalSize = human2bytes(req.params(":bytes"));
