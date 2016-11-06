@@ -25,7 +25,7 @@
 	</dependencies>
 
 	<build>
-	<finalName>server</finalName>
+		<finalName>server</finalName>
 		<plugins>
 			<plugin>
 				<artifactId>maven-assembly-plugin</artifactId>
