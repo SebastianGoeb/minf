@@ -2,6 +2,7 @@ package com.sebastiangoeb;
 
 import static spark.Spark.get;
 import static spark.Spark.port;
+import static spark.Spark.ipAddress;
 
 import java.io.OutputStream;
 import java.util.regex.Matcher;
@@ -14,6 +15,9 @@ public class Main {
 	private static final int BUFFER_SIZE = 64 * 1024; // 64 KB
 
 	public static void main(String[] args) {
+		if (args.length >= 1) {
+			ipAddress(args[0]);
+		}
 		port(8080);
 		get("/stop", (req, res) -> {
 			new Thread() {
