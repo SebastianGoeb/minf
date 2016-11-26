@@ -1,28 +1,27 @@
 class Topology(object):
-    def __init__(self, domain, controller, servers, drivers):
+    def __init__(self, domain='', controller=None, servers=None, drivers=None):
+        if domain != '' and not domain.startswith('.'):
+            domain = '.' + domain
         self.domain = domain
         self.controller = controller
+        self.controllers = [controller]
         self.drivers = drivers
         self.servers = servers
 
 
 # Mininet topology
 mininet = Topology(
-    domain='mininet',
-    controller=
-        ('mininet', '10.0.0.1', '00:00:0a:00:00:01'),
+    controller=('mininet', '10.0.0.1', '00:00:0a:00:00:01'),
     servers=[
         ('mininet', '10.0.0.2', '00:00:0a:00:00:02'),
         ('mininet', '10.0.0.3', '00:00:0a:00:00:03')],
     drivers=[
         ('mininet', '10.0.0.4', '00:00:0a:00:00:04')])
 
-
 # Testbed topology
 testbed = Topology(
     domain='inf.ed.ac.uk',
-    controller=
-        ('nsl002', '10.1.0.2', 'd4:ae:52:d1:f3:a0'),
+    controller=('nsl002', '10.1.0.2', 'd4:ae:52:d1:f3:a0'),
     servers=[
         ('nsl003', '10.1.1.2', '9a:b0:ad:56:d9:34'),
         ('nsl004', '10.1.1.3', 'ee:3d:17:22:dc:2d'),
