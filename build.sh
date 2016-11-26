@@ -1,29 +1,36 @@
 #!/bin/bash
 
-# Script directory
+# cd to cript directory
 dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-cd $dir
+cd ${dir}
 
-# Setup/clean Floodlight
+# Setup/clean controller
 if [[ ! -d floodlight/.git ]]; then
-    echo "**** SETTING UP (this could take a while) ****"
+    echo "**** SETTING UP CONTROLLER ****"
     echo
     rm -rf floodlight
     git clone git@github.com:floodlight/floodlight.git floodlight
-    cd $dir/floodlight
+    cd ${dir}/floodlight
     git submodule init
     git submodule update
 else
-    echo "**** CLEANING ****"
+    echo "**** CLEANING CONTROLLER ****"
     echo
-    cd $dir/floodlight
+    cd ${dir}/floodlight
     git reset --hard
     git clean -fd
 fi
 
-# Build
+# Build controller
 echo
-echo "**** BUILDING ****"
+echo "**** BUILDING CONTROLLER ****"
 echo
-cp -r $dir/controller/controller/* .
+cp -r ${dir}/controller/* .
 ant
+
+# Build server
+echo
+echo "**** BUILDING SERVER ****"
+echo
+cd ${dir}/server
+mvn clean install
