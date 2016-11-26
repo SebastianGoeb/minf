@@ -123,6 +123,10 @@ class testHTTPServer_RequestHandler(BaseHTTPRequestHandler):
                 self.send_response(200)
             else:
                 self.send_response(400)
+            def stop():
+                httpd.shutdown()
+            t = Timer(0, stop)
+            t.start()
         else:
             self.send_response(404)
 
