@@ -133,12 +133,8 @@ def num2ip(num):
     return '{}.{}.{}.{}'.format((raw >> 24) & 255, (raw >> 16) & 255, (raw >> 8) & 255, raw & 255)
 
 
-def run():
+if __name__ == "__main__":
     basicConfig(level=INFO, format='%(relativeCreated)6d\t%(message)s')
     httpd = HTTPServer(('0.0.0.0', 8080), testHTTPServer_RequestHandler)
     info('serving 0.0.0.0 8080')
     httpd.serve_forever()
-
-
-if __name__ == "__main__":
-    run()
