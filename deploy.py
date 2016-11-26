@@ -5,17 +5,14 @@ import subprocess
 import sys
 import os
 
-PATH = 'deploy'
-SSH = 'ssh -oBatchMode=yes'
-
 
 def clean(topo):
     # Clean
     procs = []
     hosts = topo.controllers + topo.drivers + topo.servers
     for name, _, _ in hosts:
-        proc = subprocess.Popen(['ssh', '-oBatchMode=yes', name + topo.domain, 'rm -rf ' + PATH],
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        proc = subprocess.Popen(['ssh', '-oBatchMode=yes', name, 'rm -rf deploy'], stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE)
         procs.append((name, proc))
 
     # Wait for procs to finish
@@ -44,23 +41,23 @@ def deploy(topo):
     procs = []
     # Controllers
     for name, _, _ in topo.controllers:
-        local_path = os.path.join(PATH, 'controller')
-        remote_path = name + topo.domain + ':'
-        proc = subprocess.Popen(['rsync', '-e', SSH, '-arR', local_path, remote_path],
+        local_path = 'controller/target/floodlight.jar'
+        remote_path = name + ':deploy/controller.jar'
+        proc = subprocess.Popen(['rsync', '-e', 'ssh -oBatchMode=yes', '-arR', local_path, remote_path],
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         procs.append((name, proc))
     # Drivers
     for name, _, _ in topo.drivers:
-        local_path = os.path.join(PATH, 'driver')
-        remote_path = name + topo.domain + ':'
-        proc = subprocess.Popen(['rsync', '-e', SSH, '-arR', local_path, remote_path],
+        local_path = 'driver/driver.py'
+        remote_path = name + ':deploy/driver.py'
+        proc = subprocess.Popen(['rsync', '-e', 'ssh -oBatchMode=yes', '-arR', local_path, remote_path],
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         procs.append((name, proc))
     # Servers
     for name, _, _ in topo.servers:
-        local_path = os.path.join(PATH, 'server')
-        remote_path = name + topo.domain + ':'
-        proc = subprocess.Popen(['rsync', '-e', SSH, '-arR', local_path, remote_path],
+        local_path = 'server/target/server-jar-with-dependencies.jar'
+        remote_path = name + ':deploy/server.jar'
+        proc = subprocess.Popen(['rsync', '-e', 'ssh -oBatchMode=yes', '-arR', local_path, remote_path],
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         procs.append((name, proc))
 
