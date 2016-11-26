@@ -1,20 +1,22 @@
 #!/usr/bin/python2
 
 import subprocess
-import time
 import urllib
+import time
 
-controllercommand = 'java -jar ~/minf/floodlight/target/floodlight.jar'
-drivercommand = 'python2 ~/minf/driver/driver.py'
 
 commands = {
     'server': {
-        'start': 'java -jar ~/minf/server/target/server-jar-with-dependencies.jar',
-        'stop': 'wget -O - http://{ip}:8080/stop'
+        'start': 'java -jar ~/deploy/server.jar',
+        'stop': 'wget -O - http://{ip}:{port}/stop'
     },
     'driver': {
-        'start': 'python2 ~/minf/driver/driver.py',
-        'stop': 'wget -O - http://{ip}:8080/stop'
+        'start': 'python ~/deploy/driver.py',
+        'stop': 'wget -O - http://{ip}:{port}/stop'
+    },
+    'controller': {
+        'start': 'java -jar ~/deploy/controller.jar',
+        'stop': 'kill -9 $(pgrep java)'
     }
 }
 
@@ -54,11 +56,14 @@ def run():
 
     # Parse arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument("-m", "--mininet", action="store_true", help="use mininet instead of testbed")
-    # args = parser.parse_args()
+    parser.add_argument("file", help="specify topology file", nargs='?')
+    args = parser.parse_args()
+
+    # Load topology
+    filename = args.file if args.file else 'topologies/testbed.json'
+    topo = topology.Topology(filename)
 
     # Start hosts
-    topo = topology.mininet  # if args.mininet else topology.testbed
     processes = {
         'servers': starthosts(hosts=topo.servers, command=commands['server']['start']),
         'drivers': starthosts(hosts=topo.drivers, command=commands['driver']['start'])

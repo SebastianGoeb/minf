@@ -3,7 +3,6 @@
 from __future__ import print_function
 import subprocess
 import sys
-import os
 
 
 def clean(topo):
@@ -88,13 +87,14 @@ def run():
 
     # Parse args
     parser = argparse.ArgumentParser()
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument('-t', '--testbed', action='store_true', help='install to testbed')
-    group.add_argument('-m', '--mininet', action='store_true', help='install to mininet')
+    parser.add_argument('file', help='specify topology file', nargs='?')
     args = parser.parse_args()
 
-    topo = topology.mininet if args.mininet else topology.testbed
+    # Load topology
+    filename = args.file if args.file else 'topologies/testbed.json'
+    topo = topology.Topology(filename)
 
+    # Clean and deploy
     clean(topo)
     deploy(topo)
 
