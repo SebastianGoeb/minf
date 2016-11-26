@@ -95,8 +95,11 @@ class Experiment(Thread):
         distribution = getattr(stats, srcShape['name'])(**kwargs)
         src = num2ip(distribution.rvs())
         # Start process
-        return subprocess.Popen(['wget', '-O', '-', '--limit-rate', str(shape['rate']),
-            '--bind-address', src, 'http://{dst}:8080/{size}'.format(dst=self.dst, size=shape['size'])])
+        info('wget -O - --limit-rate {rate} --bind-address {src} http://{dst}:8080/{size}'
+            .format(rate=shape['rate'], src=src, dst=self.dst, size=shape['size']))
+        return subprocess.Popen(['sleep', str(shape['size'] / shape['rate'])])
+        # return subprocess.Popen(['wget', '-O', '-', '--limit-rate', str(shape['rate']),
+        #     '--bind-address', src, 'http://{dst}:8080/{size}'.format(dst=self.dst, size=shape['size'])])
 
 class testHTTPServer_RequestHandler(BaseHTTPRequestHandler):
     experiment = None
