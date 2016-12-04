@@ -85,7 +85,7 @@ while getopts "hsr" opt; do
     case "$opt" in
         h)  show_help
 	    exit 0
-	    ;;	
+	    ;;
 	s)  setup
             exit 0
             ;;
