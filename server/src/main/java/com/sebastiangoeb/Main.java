@@ -1,16 +1,21 @@
 package com.sebastiangoeb;
 
 import static spark.Spark.get;
-import static spark.Spark.port;
 import static spark.Spark.ipAddress;
+import static spark.Spark.port;
 
 import java.io.OutputStream;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import spark.Spark;
 
 public class Main {
+
+	private static final Logger LOG = LoggerFactory.getLogger(Main.class);
 
 	private static final int BUFFER_SIZE = 64 * 1024; // 64 KB
 
@@ -34,6 +39,8 @@ public class Main {
 			return "";
 		});
 		get("/:bytes", (req, res) -> {
+			LOG.info("Serving {} to {}", req.params(":bytes"), req.ip());
+			
 			// Parse params
 			long totalSize = human2bytes(req.params(":bytes"));
 
