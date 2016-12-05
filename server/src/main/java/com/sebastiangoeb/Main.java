@@ -40,10 +40,13 @@ public class Main {
 			// Set headers and status
 			res.header("Content-Length", String.valueOf(totalSize));
 
-			// Stream zeros
+			// Stream data
 			res.raw().setBufferSize(BUFFER_SIZE);
 			OutputStream out = res.raw().getOutputStream();
 			byte[] buffer = new byte[BUFFER_SIZE];
+			for (int i = 0; i < buffer.length; i++) {
+				buffer[i] = '-';
+			}
 			for (long bytesWritten = 0; bytesWritten < totalSize; bytesWritten += Math.min(totalSize - bytesWritten,
 					BUFFER_SIZE)) {
 				out.write(buffer, 0, (int) Math.min(totalSize - bytesWritten, BUFFER_SIZE));
