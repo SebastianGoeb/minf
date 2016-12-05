@@ -1,0 +1,22 @@
+{
+    "intf": "veth0",
+    "remoteAddr": "2.2.2.2",
+    "traffics": [
+        {
+            "localAddr": [
+                {
+                    "type": "NORMAL",
+                    "mean": 0.5,
+                    "sd": 0.1,
+                    "left": 0,
+                    "right": 1,
+                    "weight": 1
+                }
+            ],
+            "rate": "1M",
+            "size": "10M",
+            "clients": 1,
+            "duration": 0
+        }
+    ]
+}
