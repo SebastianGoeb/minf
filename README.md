@@ -22,4 +22,10 @@ This server generates HTTP responses of arbitrary length at `http://<serverip>:8
 Modify `topology.py` to deploy to a different setup.
 
 ## Run
-`./master.py` to run an experiment.
+TODO
+
+## Dependencies
+* python 2
+* maven
+* ant
+* git
