@@ -1,5 +1,10 @@
-.idea
+# Python
 *.pyc
-floodlight
-server/target
-switch-config/script
+
+# Eclipse
+.settings/
+.project
+.classpath
+
+# Floodlight
+floodlight/
