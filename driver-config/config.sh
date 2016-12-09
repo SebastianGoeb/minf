@@ -22,7 +22,7 @@ setup()
     echo $ip
 
     ip link set dev eth1 up
-    ip addr add $ip dev eth1
+    ip addr add $ip/24 dev eth1
 }
 
 reset()
