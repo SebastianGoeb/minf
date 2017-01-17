@@ -1,7 +1,8 @@
-package net.floodlightcontroller.proactiveloadbalancer.assignment;
+package net.floodlightcontroller.proactiveloadbalancer.old.assignment;
 
-import net.floodlightcontroller.proactiveloadbalancer.network.ForwardingTarget;
 import org.projectfloodlight.openflow.types.IPv4Address;
+
+import net.floodlightcontroller.proactiveloadbalancer.old.network.ForwardingTarget;
 
 import java.util.Objects;
 

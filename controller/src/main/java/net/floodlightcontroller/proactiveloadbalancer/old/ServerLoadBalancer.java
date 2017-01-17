@@ -1,7 +1,50 @@
-package net.floodlightcontroller.proactiveloadbalancer;
+package net.floodlightcontroller.proactiveloadbalancer.old;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.concurrent.ExecutionException;
+import java.util.stream.Collectors;
+
+import org.projectfloodlight.openflow.protocol.OFFactory;
+import org.projectfloodlight.openflow.protocol.OFFlowAdd;
+import org.projectfloodlight.openflow.protocol.OFFlowAdd.Builder;
+import org.projectfloodlight.openflow.protocol.OFFlowModFlags;
+import org.projectfloodlight.openflow.protocol.OFFlowRemoved;
+import org.projectfloodlight.openflow.protocol.OFFlowStatsEntry;
+import org.projectfloodlight.openflow.protocol.OFFlowStatsReply;
+import org.projectfloodlight.openflow.protocol.OFFlowStatsRequest;
+import org.projectfloodlight.openflow.protocol.OFMessage;
+import org.projectfloodlight.openflow.protocol.OFPortDesc;
+import org.projectfloodlight.openflow.protocol.OFType;
+import org.projectfloodlight.openflow.protocol.action.OFAction;
+import org.projectfloodlight.openflow.protocol.action.OFActionOutput;
+import org.projectfloodlight.openflow.protocol.action.OFActions;
+import org.projectfloodlight.openflow.protocol.match.Match;
+import org.projectfloodlight.openflow.protocol.match.MatchField;
+import org.projectfloodlight.openflow.types.DatapathId;
+import org.projectfloodlight.openflow.types.EthType;
+import org.projectfloodlight.openflow.types.IPv4Address;
+import org.projectfloodlight.openflow.types.IPv4AddressWithMask;
+import org.projectfloodlight.openflow.types.IpProtocol;
+import org.projectfloodlight.openflow.types.MacAddress;
+import org.projectfloodlight.openflow.types.OFPort;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.annotation.JsonGetter;
-import net.floodlightcontroller.core.*;
+
+import net.floodlightcontroller.core.FloodlightContext;
+import net.floodlightcontroller.core.IFloodlightProviderService;
+import net.floodlightcontroller.core.IOFMessageListener;
+import net.floodlightcontroller.core.IOFSwitch;
+import net.floodlightcontroller.core.IOFSwitchListener;
+import net.floodlightcontroller.core.PortChangeType;
 import net.floodlightcontroller.core.internal.IOFSwitchService;
 import net.floodlightcontroller.core.module.FloodlightModuleContext;
 import net.floodlightcontroller.core.module.FloodlightModuleException;
@@ -10,27 +53,19 @@ import net.floodlightcontroller.core.module.IFloodlightService;
 import net.floodlightcontroller.packet.Ethernet;
 import net.floodlightcontroller.packet.IPv4;
 import net.floodlightcontroller.packet.TCP;
+import net.floodlightcontroller.proactiveloadbalancer.AddressPool;
+import net.floodlightcontroller.proactiveloadbalancer.IServerLoadBalancerService;
+import net.floodlightcontroller.proactiveloadbalancer.old.assignment.Assignment;
+import net.floodlightcontroller.proactiveloadbalancer.old.assignment.AssignmentTree;
+import net.floodlightcontroller.proactiveloadbalancer.old.assignment.AssignmentTree.Changes;
+import net.floodlightcontroller.proactiveloadbalancer.old.network.ForwardingTarget;
+import net.floodlightcontroller.proactiveloadbalancer.old.network.LoadBalanceTarget;
+import net.floodlightcontroller.proactiveloadbalancer.old.network.Server;
+import net.floodlightcontroller.proactiveloadbalancer.old.network.Switch;
+import net.floodlightcontroller.proactiveloadbalancer.old.network.TransitionTarget;
+import net.floodlightcontroller.proactiveloadbalancer.old.web.ServerLoadBalancerWebRoutable;
 import net.floodlightcontroller.restserver.IRestApiService;
-import net.floodlightcontroller.proactiveloadbalancer.assignment.Assignment;
-import net.floodlightcontroller.proactiveloadbalancer.assignment.AssignmentTree;
-import net.floodlightcontroller.proactiveloadbalancer.assignment.AssignmentTree.Changes;
-import net.floodlightcontroller.proactiveloadbalancer.network.*;
-import net.floodlightcontroller.proactiveloadbalancer.web.ServerLoadBalancerWebRoutable;
 import net.floodlightcontroller.threadpool.IThreadPoolService;
-import org.projectfloodlight.openflow.protocol.*;
-import org.projectfloodlight.openflow.protocol.OFFlowAdd.Builder;
-import org.projectfloodlight.openflow.protocol.action.OFAction;
-import org.projectfloodlight.openflow.protocol.action.OFActionOutput;
-import org.projectfloodlight.openflow.protocol.action.OFActions;
-import org.projectfloodlight.openflow.protocol.match.Match;
-import org.projectfloodlight.openflow.protocol.match.MatchField;
-import org.projectfloodlight.openflow.types.*;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.util.*;
-import java.util.concurrent.ExecutionException;
-import java.util.stream.Collectors;
 
 public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener, IOFSwitchListener, IServerLoadBalancerService {
 
@@ -709,5 +744,27 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
 	public void switchDeactivated(DatapathId switchId) {
 		// TODO Auto-generated method stub
 		
+	}
+	
+	// ---- NEW SHIT ----
+	private Map<IPv4Address, AddressPool> mappings = new HashMap<>(); // TODO initialize somewhere else
+	
+	@Override
+	public void addMapping(IPv4Address vip, AddressPool mapping) {
+		if (mappings.containsKey(vip)) {
+			// TODO do cleanup?
+		}
+		mappings.put(vip, mapping);
+		// TODO update load balancing rules
+	}
+	
+	@Override
+	public boolean hasMappingFor(IPv4Address vip) {
+		return mappings.containsKey(vip);
+	}
+	
+	@Override
+	public AddressPool deleteMappingFor(IPv4Address vip) {
+		return mappings.remove(vip);
 	}
 }

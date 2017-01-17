@@ -1,4 +1,4 @@
-package net.floodlightcontroller.proactiveloadbalancer.network;
+package net.floodlightcontroller.proactiveloadbalancer.old.network;
 
 import com.fasterxml.jackson.annotation.JsonGetter;
 import com.fasterxml.jackson.annotation.JsonIgnore;

@@ -1,12 +1,13 @@
-package net.floodlightcontroller.proactiveloadbalancer;
+package net.floodlightcontroller.proactiveloadbalancer.old;
 
 import com.google.common.util.concurrent.AtomicDouble;
-import net.floodlightcontroller.proactiveloadbalancer.assignment.AssignmentTree;
-import net.floodlightcontroller.proactiveloadbalancer.assignment.AssignmentTree.Changes;
-import net.floodlightcontroller.proactiveloadbalancer.assignment.Assignment;
-import net.floodlightcontroller.proactiveloadbalancer.assignment.MaskAssignment;
-import net.floodlightcontroller.proactiveloadbalancer.network.ForwardingTarget;
-import net.floodlightcontroller.proactiveloadbalancer.network.LoadBalanceTarget;
+import net.floodlightcontroller.proactiveloadbalancer.old.assignment.AssignmentTree;
+import net.floodlightcontroller.proactiveloadbalancer.old.assignment.AssignmentTree.Changes;
+import net.floodlightcontroller.proactiveloadbalancer.old.network.ForwardingTarget;
+import net.floodlightcontroller.proactiveloadbalancer.old.network.LoadBalanceTarget;
+import net.floodlightcontroller.proactiveloadbalancer.old.assignment.Assignment;
+import net.floodlightcontroller.proactiveloadbalancer.old.assignment.MaskAssignment;
+
 import org.projectfloodlight.openflow.types.IPv4Address;
 
 import java.util.ArrayList;

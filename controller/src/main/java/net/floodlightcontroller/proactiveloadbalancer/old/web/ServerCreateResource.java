@@ -1,9 +1,10 @@
-package net.floodlightcontroller.proactiveloadbalancer.web;
+package net.floodlightcontroller.proactiveloadbalancer.old.web;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.floodlightcontroller.proactiveloadbalancer.IServerLoadBalancerService;
-import net.floodlightcontroller.proactiveloadbalancer.network.Server;
+import net.floodlightcontroller.proactiveloadbalancer.old.network.Server;
+
 import org.restlet.data.Status;
 import org.restlet.resource.Post;
 import org.restlet.resource.Put;

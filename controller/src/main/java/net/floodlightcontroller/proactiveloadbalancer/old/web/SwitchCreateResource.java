@@ -1,7 +1,8 @@
-package net.floodlightcontroller.proactiveloadbalancer.web;
+package net.floodlightcontroller.proactiveloadbalancer.old.web;
 
 import net.floodlightcontroller.proactiveloadbalancer.IServerLoadBalancerService;
-import net.floodlightcontroller.proactiveloadbalancer.network.Switch;
+import net.floodlightcontroller.proactiveloadbalancer.old.network.Switch;
+
 import org.restlet.data.Status;
 import org.restlet.resource.Post;
 import org.restlet.resource.ServerResource;

@@ -1,4 +1,4 @@
-package net.floodlightcontroller.proactiveloadbalancer.network;
+package net.floodlightcontroller.proactiveloadbalancer.old.network;
 
 public class TransitionTarget implements ForwardingTarget {
     private ForwardingTarget oldTarget;

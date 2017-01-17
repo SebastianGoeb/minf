@@ -6,5 +6,8 @@
 .project
 .classpath
 
+# Jetbrains
+.idea/
+
 # Floodlight
 floodlight/

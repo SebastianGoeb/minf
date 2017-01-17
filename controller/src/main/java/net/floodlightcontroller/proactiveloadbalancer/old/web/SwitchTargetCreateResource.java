@@ -1,12 +1,13 @@
-package net.floodlightcontroller.proactiveloadbalancer.web;
+package net.floodlightcontroller.proactiveloadbalancer.old.web;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.floodlightcontroller.core.internal.IOFSwitchService;
 import net.floodlightcontroller.proactiveloadbalancer.IServerLoadBalancerService;
-import net.floodlightcontroller.proactiveloadbalancer.network.LoadBalanceTarget;
-import net.floodlightcontroller.proactiveloadbalancer.network.Switch;
+import net.floodlightcontroller.proactiveloadbalancer.old.network.LoadBalanceTarget;
+import net.floodlightcontroller.proactiveloadbalancer.old.network.Switch;
+
 import org.projectfloodlight.openflow.types.DatapathId;
 import org.restlet.data.Status;
 import org.restlet.resource.Post;
