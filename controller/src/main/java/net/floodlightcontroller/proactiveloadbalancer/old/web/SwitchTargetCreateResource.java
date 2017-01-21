@@ -4,7 +4,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.floodlightcontroller.core.internal.IOFSwitchService;
-import net.floodlightcontroller.proactiveloadbalancer.IServerLoadBalancerService;
+import net.floodlightcontroller.proactiveloadbalancer.old.IServerLoadBalancerService;
 import net.floodlightcontroller.proactiveloadbalancer.old.network.LoadBalanceTarget;
 import net.floodlightcontroller.proactiveloadbalancer.old.network.Switch;
 

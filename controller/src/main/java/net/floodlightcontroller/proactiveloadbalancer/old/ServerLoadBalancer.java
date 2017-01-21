@@ -54,7 +54,6 @@ import net.floodlightcontroller.packet.Ethernet;
 import net.floodlightcontroller.packet.IPv4;
 import net.floodlightcontroller.packet.TCP;
 import net.floodlightcontroller.proactiveloadbalancer.AddressPool;
-import net.floodlightcontroller.proactiveloadbalancer.IServerLoadBalancerService;
 import net.floodlightcontroller.proactiveloadbalancer.old.assignment.Assignment;
 import net.floodlightcontroller.proactiveloadbalancer.old.assignment.AssignmentTree;
 import net.floodlightcontroller.proactiveloadbalancer.old.assignment.AssignmentTree.Changes;

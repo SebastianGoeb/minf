@@ -3,7 +3,9 @@ package net.floodlightcontroller.proactiveloadbalancer.old.web;
 import com.fasterxml.jackson.core.JsonParseException;
 import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import net.floodlightcontroller.proactiveloadbalancer.IServerLoadBalancerService;
+
+import net.floodlightcontroller.proactiveloadbalancer.old.IServerLoadBalancerService;
+
 import org.restlet.data.Status;
 import org.restlet.resource.Post;
 import org.restlet.resource.ServerResource;

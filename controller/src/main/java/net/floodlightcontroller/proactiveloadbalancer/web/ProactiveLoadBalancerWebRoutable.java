@@ -5,7 +5,7 @@ import org.restlet.Context;
 import org.restlet.Restlet;
 import org.restlet.routing.Router;
 
-public class ProactiveLoadBalancerWebRoutable implements RestletRoutable{
+public class ProactiveLoadBalancerWebRoutable implements RestletRoutable {
     @Override
     public Restlet getRestlet(Context context) {
         Router router = new Router(context);

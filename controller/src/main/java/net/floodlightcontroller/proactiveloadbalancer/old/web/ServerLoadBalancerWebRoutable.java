@@ -1,10 +1,10 @@
 package net.floodlightcontroller.proactiveloadbalancer.old.web;
 
-import net.floodlightcontroller.proactiveloadbalancer.web.AddressPoolResource;
-import net.floodlightcontroller.restserver.RestletRoutable;
 import org.restlet.Context;
 import org.restlet.Restlet;
 import org.restlet.routing.Router;
+
+import net.floodlightcontroller.restserver.RestletRoutable;
 
 public class ServerLoadBalancerWebRoutable implements RestletRoutable{
     @Override
@@ -17,9 +17,6 @@ public class ServerLoadBalancerWebRoutable implements RestletRoutable{
         router.attach("/switches/{id}", SwitchDeleteResource.class);
         router.attach("/assignmentTrees", AssignmentTreeCreateResource.class);
         router.attach("/stats", ServerLoadBalancerStatsResource.class);
-        
-        // ---- NEW SHIT ----
-        router.attach("/mappings/{ip}", AddressPoolResource.class);
         return router;
     }
 

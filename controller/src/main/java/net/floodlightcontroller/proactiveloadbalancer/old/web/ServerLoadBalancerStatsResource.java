@@ -1,6 +1,6 @@
 package net.floodlightcontroller.proactiveloadbalancer.old.web;
 
-import net.floodlightcontroller.proactiveloadbalancer.IServerLoadBalancerService;
+import net.floodlightcontroller.proactiveloadbalancer.old.IServerLoadBalancerService;
 import net.floodlightcontroller.proactiveloadbalancer.old.ServerLoadBalancer.Stats;
 import net.floodlightcontroller.proactiveloadbalancer.old.network.LoadBalanceTarget;
 

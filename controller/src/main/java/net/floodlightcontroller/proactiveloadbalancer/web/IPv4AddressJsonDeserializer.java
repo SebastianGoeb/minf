@@ -10,11 +10,11 @@ import com.fasterxml.jackson.databind.DeserializationContext;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.deser.std.StdDeserializer;
 
-public class IPv4AddressJsonDeserializer extends StdDeserializer<IPv4Address> {
+class IPv4AddressJsonDeserializer extends StdDeserializer<IPv4Address> {
 
 	private static final long serialVersionUID = 1L;
 
-	public IPv4AddressJsonDeserializer(Class<IPv4Address> t) {
+	IPv4AddressJsonDeserializer(Class<IPv4Address> t) {
 		super(t);
 	}
 

@@ -13,13 +13,13 @@ import org.slf4j.LoggerFactory;
 import net.floodlightcontroller.proactiveloadbalancer.IProactiveLoadBalancerService;
 
 public class SwitchResource extends ServerResource {
-    protected static Logger log = LoggerFactory.getLogger(SwitchResource.class);
+	protected static Logger log = LoggerFactory.getLogger(SwitchResource.class);
 
 	@Put("json")
 	public String createOrUpdateSwitch(String fmJson) throws IOException {
 		IProactiveLoadBalancerService lbService = (IProactiveLoadBalancerService) getContext().getAttributes()
 				.get(IProactiveLoadBalancerService.class.getCanonicalName());
-		
+
 		// Validate DPID
 		DatapathId dpid;
 		try {
@@ -41,7 +41,7 @@ public class SwitchResource extends ServerResource {
 	public String deleteSwitch() throws IOException {
 		IProactiveLoadBalancerService lbService = (IProactiveLoadBalancerService) getContext().getAttributes()
 				.get(IProactiveLoadBalancerService.class.getCanonicalName());
-		
+
 		// Validate DPID
 		DatapathId dpid;
 		try {

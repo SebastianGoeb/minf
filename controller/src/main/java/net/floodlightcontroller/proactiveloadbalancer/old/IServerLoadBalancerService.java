@@ -1,6 +1,7 @@
-package net.floodlightcontroller.proactiveloadbalancer;
+package net.floodlightcontroller.proactiveloadbalancer.old;
 
 import net.floodlightcontroller.core.module.IFloodlightService;
+import net.floodlightcontroller.proactiveloadbalancer.AddressPool;
 import net.floodlightcontroller.proactiveloadbalancer.old.ServerLoadBalancer.Stats;
 import net.floodlightcontroller.proactiveloadbalancer.old.network.LoadBalanceTarget;
 import net.floodlightcontroller.proactiveloadbalancer.old.network.Server;

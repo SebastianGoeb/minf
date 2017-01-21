@@ -2,7 +2,8 @@ package net.floodlightcontroller.proactiveloadbalancer.old.web;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import net.floodlightcontroller.proactiveloadbalancer.IServerLoadBalancerService;
+
+import net.floodlightcontroller.proactiveloadbalancer.old.IServerLoadBalancerService;
 import net.floodlightcontroller.proactiveloadbalancer.old.network.Server;
 
 import org.restlet.data.Status;

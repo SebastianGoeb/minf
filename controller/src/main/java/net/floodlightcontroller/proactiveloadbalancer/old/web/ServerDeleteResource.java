@@ -1,6 +1,6 @@
 package net.floodlightcontroller.proactiveloadbalancer.old.web;
 
-import net.floodlightcontroller.proactiveloadbalancer.IServerLoadBalancerService;
+import net.floodlightcontroller.proactiveloadbalancer.old.IServerLoadBalancerService;
 import net.floodlightcontroller.proactiveloadbalancer.old.network.Server;
 
 import org.restlet.resource.Delete;
