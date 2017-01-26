@@ -25,10 +25,9 @@ git submodule update --init
 
 # Create symlinks to custom controller code
 paths=(
-	"src/main/resources/floodlightdefault.properties"
+	"src/main/resources/floodlightloadbalancer.properties"
 	"src/main/resources/META-INF/services/net.floodlightcontroller.core.module.IFloodlightModule"
 	"src/main/java/net/floodlightcontroller/proactiveloadbalancer"
-	"src/main/java/net/floodlightcontroller/hierarchicalheavyhitters"
 )
 for path in ${paths[@]}; do
 	[ -f $path ] && rm $path
@@ -59,9 +58,9 @@ cat >.project <<EOF
 	</natures>
 	<linkedResources>
 		<link>
-			<name>src/main/resources/floodlightdefault.properties</name>
+			<name>src/main/resources/floodlightloadbalancer.properties</name>
 			<type>1</type>
-			<location>$dir/controller/src/main/resources/floodlightdefault.properties</location>
+			<location>$dir/controller/src/main/resources/floodlightloadbalancer.properties</location>
 		</link>
 		<link>
 			<name>src/main/resources/META-INF/services/net.floodlightcontroller.core.module.IFloodlightModule</name>
@@ -72,11 +71,6 @@ cat >.project <<EOF
 			<name>src/main/java/net/floodlightcontroller/proactiveloadbalancer</name>
 			<type>2</type>
 			<location>$dir/controller/src/main/java/net/floodlightcontroller/proactiveloadbalancer</location>
-		</link>
-		<link>
-			<name>src/main/java/net/floodlightcontroller/hierarchicalheavyhitters</name>
-			<type>2</type>
-			<location>$dir/controller/src/main/java/net/floodlightcontroller/hierarchicalheavyhitters</location>
 		</link>
 	</linkedResources>
 </projectDescription>

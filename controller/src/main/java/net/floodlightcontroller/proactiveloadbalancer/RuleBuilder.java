@@ -13,9 +13,6 @@ import com.google.common.collect.Ordering;
 
 class RuleBuilder {
 
-	// Contants
-	private static final IPv4AddressWithMask SRC_RANGE = IPv4AddressWithMask.of("10.5.0.0/16");
-
 	public static Set<Rule> buildRules(AddressPool addressPool) {
 		// sort dips
 		List<IPv4Address> dips = Ordering.natural().immutableSortedCopy(addressPool.getDips());
@@ -39,9 +36,9 @@ class RuleBuilder {
 
 		// Turn into prefixes
 		Set<Rule> rules = new LinkedHashSet<>();
-		int valueIncrement = Integer.MIN_VALUE >>> (SRC_RANGE.getMask().asCidrMaskLength() + bits - 1);
-		int value = SRC_RANGE.getValue().getInt();
-		int mask = IPv4Address.ofCidrMaskLength((SRC_RANGE.getMask().asCidrMaskLength() + bits)).getInt();
+		int valueIncrement = Integer.MIN_VALUE >>> (ProactiveLoadBalancer.SRC_RANGE.getMask().asCidrMaskLength() + bits - 1);
+		int value = ProactiveLoadBalancer.SRC_RANGE.getValue().getInt();
+		int mask = IPv4Address.ofCidrMaskLength((ProactiveLoadBalancer.SRC_RANGE.getMask().asCidrMaskLength() + bits)).getInt();
 		for (int i = 0; i < splitWeights.size(); i++) {
 			int weight = splitWeights.get(i);
 			IPv4AddressWithMask prefix = IPv4Address.of(value).withMask(IPv4Address.of(mask * weight));
