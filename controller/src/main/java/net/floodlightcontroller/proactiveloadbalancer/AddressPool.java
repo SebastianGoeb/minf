@@ -1,22 +1,26 @@
 package net.floodlightcontroller.proactiveloadbalancer;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
+import org.projectfloodlight.openflow.types.IPv4Address;
+
 import java.util.Collections;
 import java.util.List;
 
-import org.projectfloodlight.openflow.types.IPv4Address;
-
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
-
 public class AddressPool {
+
+	@JsonProperty
+	@JsonSerialize(contentUsing = ToStringSerializer.class)
+	@JsonDeserialize(contentUsing = IPv4AddressDeserializer.class)
 	private final List<IPv4Address> dips;
 
-	@JsonCreator
-	public AddressPool(@JsonProperty("dips") List<IPv4Address> dips) {
-		this.dips = Collections.unmodifiableList(dips);
+	public AddressPool() {
+		this.dips = Collections.emptyList();
 	}
 
-	public List<IPv4Address> getDips() {
+	List<IPv4Address> getDips() {
 		return dips;
 	}
 

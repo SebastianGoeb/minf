@@ -1,7 +1,8 @@
 package net.floodlightcontroller.proactiveloadbalancer.web;
 
-import java.io.IOException;
-
+import com.fasterxml.jackson.databind.ObjectMapper;
+import net.floodlightcontroller.proactiveloadbalancer.AddressPool;
+import net.floodlightcontroller.proactiveloadbalancer.IProactiveLoadBalancerService;
 import org.projectfloodlight.openflow.types.IPv4Address;
 import org.restlet.data.Status;
 import org.restlet.resource.Delete;
@@ -10,21 +11,16 @@ import org.restlet.resource.ServerResource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.module.SimpleModule;
-import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
-
-import net.floodlightcontroller.proactiveloadbalancer.AddressPool;
-import net.floodlightcontroller.proactiveloadbalancer.IProactiveLoadBalancerService;
+import java.io.IOException;
 
 public class AddressPoolResource extends ServerResource {
     protected static Logger log = LoggerFactory.getLogger(AddressPoolResource.class);
 
 	@Put("json")
-	public String createOrUpdateAddressPool(String fmJson) throws IOException {
+	public String createOrUpdateAddressPool(String json) throws IOException {
 		IProactiveLoadBalancerService lbService = (IProactiveLoadBalancerService) getContext().getAttributes()
 				.get(IProactiveLoadBalancerService.class.getCanonicalName());
-		
+
 		// Validate VIP
 		IPv4Address vip;
 		try {
@@ -33,21 +29,17 @@ public class AddressPoolResource extends ServerResource {
 			setStatus(Status.CLIENT_ERROR_BAD_REQUEST);
 			return "{\"error\":\"Invalid VIP\"}";
 		}
-		
+
 		// Parse JSON
 		ObjectMapper mapper = new ObjectMapper();
-		SimpleModule module = new SimpleModule();
-		module.addDeserializer(IPv4Address.class, new IPv4AddressJsonDeserializer(IPv4Address.class));
-		module.addSerializer(IPv4Address.class, new ToStringSerializer());
-		mapper.registerModule(module);
-		AddressPool addressPool = mapper.readValue(fmJson, AddressPool.class);
+		AddressPool addressPool = mapper.readValue(json, AddressPool.class);
 
 		// Add DIP address pool for VIP
 		lbService.addAddressPool(vip, addressPool);
 
 		// Construct response
 		setStatus(Status.SUCCESS_CREATED);
-		
+
 		return mapper.writeValueAsString(addressPool);
 	}
 
@@ -55,7 +47,7 @@ public class AddressPoolResource extends ServerResource {
 	public String deleteAddressPool() throws IOException {
 		IProactiveLoadBalancerService lbService = (IProactiveLoadBalancerService) getContext().getAttributes()
 				.get(IProactiveLoadBalancerService.class.getCanonicalName());
-		
+
 		// Validate VIP
 		IPv4Address vip;
 		try {

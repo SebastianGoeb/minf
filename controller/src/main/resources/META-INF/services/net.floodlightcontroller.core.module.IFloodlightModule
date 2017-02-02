@@ -29,4 +29,4 @@ net.floodlightcontroller.learningswitch.LearningSwitch
 net.floodlightcontroller.statistics.StatisticsCollector
 net.floodlightcontroller.routing.RoutingManager
 net.floodlightcontroller.proactiveloadbalancer.ProactiveLoadBalancer
-net.floodlightcontroller.proactiveloadbalancer.TrafficMeasurement
+net.floodlightcontroller.proactiveloadbalancer.TrafficMeasurementService

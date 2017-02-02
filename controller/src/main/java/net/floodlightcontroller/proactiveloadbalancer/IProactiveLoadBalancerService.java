@@ -6,6 +6,12 @@ import org.projectfloodlight.openflow.types.IPv4Address;
 import net.floodlightcontroller.core.module.IFloodlightService;
 
 public interface IProactiveLoadBalancerService extends IFloodlightService {
+    // Strategy
+    void setStrategy(Strategy strategy);
+
+    // Topology
+    void setTopology(Topology topology);
+
 	void addSwitch(DatapathId dpid);
 	DatapathId deleteSwitch(DatapathId dpid);
 	

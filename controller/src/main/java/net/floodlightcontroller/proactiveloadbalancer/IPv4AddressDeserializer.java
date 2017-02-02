@@ -1,21 +1,20 @@
-package net.floodlightcontroller.proactiveloadbalancer.web;
-
-import java.io.IOException;
-
-import org.projectfloodlight.openflow.types.IPv4Address;
+package net.floodlightcontroller.proactiveloadbalancer;
 
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationContext;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.deser.std.StdDeserializer;
+import org.projectfloodlight.openflow.types.IPv4Address;
 
-class IPv4AddressJsonDeserializer extends StdDeserializer<IPv4Address> {
+import java.io.IOException;
+
+class IPv4AddressDeserializer extends StdDeserializer<IPv4Address> {
 
 	private static final long serialVersionUID = 1L;
 
-	IPv4AddressJsonDeserializer(Class<IPv4Address> t) {
-		super(t);
+	IPv4AddressDeserializer() {
+		super(IPv4Address.class);
 	}
 
 	@Override

@@ -1,163 +1,74 @@
 package net.floodlightcontroller.proactiveloadbalancer;
 
-import net.floodlightcontroller.core.IOFSwitch;
-import org.projectfloodlight.openflow.protocol.OFFactory;
-import org.projectfloodlight.openflow.protocol.action.OFAction;
-import org.projectfloodlight.openflow.protocol.action.OFActions;
-import org.projectfloodlight.openflow.protocol.instruction.OFInstruction;
-import org.projectfloodlight.openflow.protocol.instruction.OFInstructions;
-import org.projectfloodlight.openflow.protocol.match.Match;
-import org.projectfloodlight.openflow.protocol.match.MatchField;
-import org.projectfloodlight.openflow.protocol.oxm.OFOxms;
-import org.projectfloodlight.openflow.types.*;
+import com.google.common.collect.Ordering;
+import org.projectfloodlight.openflow.types.IPv4Address;
+import org.projectfloodlight.openflow.types.IPv4AddressWithMask;
 
 import java.util.*;
 
 class FlowBuilder {
 
-    // Constants
-    // TODO get at runtime?
-    private static final MacAddress SWITCH_MAC = MacAddress.of("00:00:02:02:02:02");
-    // TODO get at runtime?
-    private static final Map<IPv4Address, MacAddress> SERVER_MACS = new HashMap<>();
+	static Set<Flow> buildFlows(AddressPool addressPool) {
+		// sort dips
+		List<IPv4Address> dips = Ordering.natural().immutableSortedCopy(addressPool.getDips());
 
-    static {
-        SERVER_MACS.put(IPv4Address.of("10.1.1.2"), MacAddress.of("9a:b0:ad:56:d9:34"));
-        SERVER_MACS.put(IPv4Address.of("10.1.1.3"), MacAddress.of("ee:3d:17:22:dc:2d"));
-        SERVER_MACS.put(IPv4Address.of("10.1.2.2"), MacAddress.of("d6:a7:d3:02:9c:bd"));
-        SERVER_MACS.put(IPv4Address.of("10.1.2.3"), MacAddress.of("fa:68:47:42:43:a1"));
-        SERVER_MACS.put(IPv4Address.of("10.2.1.2"), MacAddress.of("82:91:b7:5a:63:28"));
-        SERVER_MACS.put(IPv4Address.of("10.2.1.3"), MacAddress.of("2e:84:54:c3:76:d1"));
-        SERVER_MACS.put(IPv4Address.of("10.2.2.2"), MacAddress.of("36:d5:29:59:63:2b"));
-        SERVER_MACS.put(IPv4Address.of("10.2.2.3"), MacAddress.of("be:6c:7d:62:31:31"));
-        SERVER_MACS.put(IPv4Address.of("10.3.1.2"), MacAddress.of("1e:ca:c3:13:44:43"));
-        SERVER_MACS.put(IPv4Address.of("10.3.1.3"), MacAddress.of("f6:a6:11:17:44:36"));
-        SERVER_MACS.put(IPv4Address.of("10.3.2.2"), MacAddress.of("06:70:d7:82:29:d0"));
-        SERVER_MACS.put(IPv4Address.of("10.3.2.3"), MacAddress.of("ba:13:cf:89:66:18"));
-        SERVER_MACS.put(IPv4Address.of("10.4.1.2"), MacAddress.of("6e:47:a6:68:df:fb"));
-        SERVER_MACS.put(IPv4Address.of("10.4.1.3"), MacAddress.of("3e:ff:e6:a4:1e:1f"));
-        SERVER_MACS.put(IPv4Address.of("10.4.2.2"), MacAddress.of("f6:2c:99:73:fc:d6"));
-        SERVER_MACS.put(IPv4Address.of("10.4.2.3"), MacAddress.of("4e:b3:0c:da:61:23"));
-    }
+		// scale weights to int values summing to next power of 2
+		int bits = dips.size() == 0 ? 0 : 32 - Integer.numberOfLeadingZeros(dips.size() - 1);
+		List<Integer> scaledWeights = FlowBuilder.scaleWeights(Collections.nCopies(dips.size(), 1d), 1 << bits);
+		
+		// Split weights into powers of 2
+		List<IPv4Address> splitDips = new ArrayList<>();
+		List<Integer> splitWeights = new ArrayList<>();
+		for (int i = 0; i < scaledWeights.size(); i++) {
+			int weight = scaledWeights.get(i);
+			for (int j = 1; j <= weight; j <<= 1) {
+				if ((j & weight) != 0) {
+					splitWeights.add(j);
+					splitDips.add(dips.get(i));
+				}
+			}
+		}
 
-    // Load balancing flows
-    static void addIncomingLoadBalancing(IOFSwitch ofSwitch, TableId tableId, IPv4AddressWithMask prefix, IPv4Address vip, IPv4Address dip) {
-        OFFactory factory = ofSwitch.getOFFactory();
-        OFInstructions instructions = factory.instructions();
+		// Turn into prefixes
+		Set<Flow> flows = new LinkedHashSet<>();
+		int valueIncrement = Integer.MIN_VALUE >>> (ProactiveLoadBalancer.SRC_RANGE.getMask().asCidrMaskLength() + bits - 1);
+		int value = ProactiveLoadBalancer.SRC_RANGE.getValue().getInt();
+		int mask = IPv4Address.ofCidrMaskLength((ProactiveLoadBalancer.SRC_RANGE.getMask().asCidrMaskLength() + bits)).getInt();
+		for (int i = 0; i < splitWeights.size(); i++) {
+			int weight = splitWeights.get(i);
+			IPv4AddressWithMask prefix = IPv4Address.of(value).withMask(IPv4Address.of(mask * weight));
+			flows.add(new Flow(prefix, splitDips.get(i)));
+			value += valueIncrement * weight;
+		}
 
-        Match match = buildIncomingMatch(factory, vip, prefix);
+		return flows;
+	}
+	
+	private static List<Integer> scaleWeights(List<Double> weights, double total) {
+		// Cumulative sum
+		double[] cumul = new double[weights.size()];
+		double sum = 0;
+		for (int i = 0; i < cumul.length; i++) {
+			sum += weights.get(i);
+			cumul[i] = sum;
+		}
 
-        List<OFAction> actionList = buildIncomingActionList(factory, dip);
+		// Scale and round
+		int[] scaled = new int[cumul.length];
+		for (int i = 0; i < cumul.length; i++) {
+			scaled[i] = (int) Math.round(cumul[i] * total / sum);
+		}
 
-        List<OFInstruction> instructionList = Arrays.asList(
-            instructions.applyActions(actionList),
-            instructions.gotoTable(TableId.of(tableId.getValue() + 1)));
+		// Un-cumulative
+		List<Integer> normalizedWeights = new ArrayList<>(scaled.length);
+		normalizedWeights.add(scaled[0]);
+		for (int i = 1; i < scaled.length; i++) {
+			normalizedWeights.add(scaled[i] - scaled[i - 1]);
+		}
+		return normalizedWeights;
+	}
 
-        // TODO Transitions?
+	static void buildFlowsUniform(Topology topology, Set<Flow> flows) {
 
-        ofSwitch.write(factory
-            .buildFlowAdd()
-            .setTableId(tableId)
-            .setMatch(match)
-            .setInstructions(instructionList)
-            .build());
-    }
-
-    static void deleteStrictIncomingLoadBalancing(IOFSwitch ofSwitch, TableId tableId, IPv4AddressWithMask prefix, IPv4Address vip, IPv4Address dip) {
-        OFFactory factory = ofSwitch.getOFFactory();
-        OFInstructions instructions = factory.instructions();
-
-        Match match = buildIncomingMatch(factory, vip, prefix);
-
-        List<OFAction> actionList = buildIncomingActionList(factory, dip);
-
-        List<OFInstruction> instructionList = Arrays.asList(
-            instructions.applyActions(actionList),
-            instructions.gotoTable(TableId.of(tableId.getValue() + 1)));
-
-        // TODO Transitions?
-
-        ofSwitch.write(factory
-            .buildFlowDeleteStrict()
-            .setTableId(tableId)
-            .setMatch(match)
-            .setInstructions(instructionList)
-            .build());
-    }
-
-    private static Match buildIncomingMatch(OFFactory factory, IPv4Address vip, IPv4AddressWithMask prefix) {
-        return factory
-            .buildMatch()
-            .setExact(MatchField.ETH_TYPE, EthType.IPv4)
-            .setExact(MatchField.IPV4_DST, vip)
-            .setMasked(MatchField.IPV4_SRC, prefix)
-            .build();
-    }
-
-    private static List<OFAction> buildIncomingActionList(OFFactory factory, IPv4Address dip) {
-        OFActions actions = factory.actions();
-        switch (factory.getVersion()) {
-            case OF_13:
-                OFOxms oxms = factory.oxms();
-                return Arrays.asList(
-                    actions.setField(oxms.ethSrc(SWITCH_MAC)),
-                    actions.setField(oxms.ethDst(SERVER_MACS.get(dip))),
-                    actions.setField(oxms.ipv4Dst(dip)));
-            default:
-                throw new UnsupportedOperationException(factory.getVersion().toString() + " not supported");
-        }
-    }
-
-    // Traffic measurement flows
-    static void addIncomingTrafficMeasurement(IOFSwitch ofSwitch, TableId tableId, IPv4AddressWithMask prefix, IPv4Address vip) {
-        OFFactory factory = ofSwitch.getOFFactory();
-        OFInstructions instructions = factory.instructions();
-
-        // Build match
-        Match match = factory
-            .buildMatch()
-            .setExact(MatchField.ETH_TYPE, EthType.IPv4)
-            .setMasked(MatchField.IPV4_SRC, prefix)
-            .setExact(MatchField.IPV4_DST, vip)
-            .build();
-
-        // Build instructions
-        List<OFInstruction> instructionList = Collections
-            .singletonList(instructions.gotoTable(TableId.of(tableId.getValue() + 1)));
-
-        // TODO skip relevant flows for inc/out
-
-        ofSwitch.write(factory
-            .buildFlowAdd()
-            .setTableId(tableId)
-            .setMatch(match)
-            .setInstructions(instructionList)
-            .build());
-    }
-
-    static void addOutgoingTrafficMeasurement(IOFSwitch ofSwitch, TableId tableId, IPv4AddressWithMask prefix, IPv4Address vip) {
-        OFFactory factory = ofSwitch.getOFFactory();
-        OFInstructions instructions = factory.instructions();
-
-        // Build match
-        Match match = factory
-            .buildMatch()
-            .setExact(MatchField.ETH_TYPE, EthType.IPv4)
-            .setMasked(MatchField.IPV4_DST, prefix)
-            .setExact(MatchField.IPV4_SRC, vip)
-            .build();
-
-        // Build instructions
-        List<OFInstruction> instructionList = Collections
-            .singletonList(instructions.gotoTable(TableId.of(tableId.getValue() + 1)));
-
-        // TODO skip relevant flows for inc/out
-
-        ofSwitch.write(factory
-            .buildFlowAdd()
-            .setTableId(tableId)
-            .setMatch(match)
-            .setInstructions(instructionList)
-            .build());
-    }
+	}
 }

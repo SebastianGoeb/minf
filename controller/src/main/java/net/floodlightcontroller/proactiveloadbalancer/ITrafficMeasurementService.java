@@ -4,7 +4,7 @@ import net.floodlightcontroller.core.module.IFloodlightService;
 import org.projectfloodlight.openflow.types.DatapathId;
 import org.projectfloodlight.openflow.types.IPv4Address;
 
-interface ITrafficMeasurementService extends IFloodlightService {
+public interface ITrafficMeasurementService extends IFloodlightService {
     void setVip(IPv4Address vip);
 
     void addSwitch(DatapathId dpid);

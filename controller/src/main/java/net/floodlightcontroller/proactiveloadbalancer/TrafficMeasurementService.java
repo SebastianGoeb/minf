@@ -25,9 +25,9 @@ import java.util.concurrent.TimeUnit;
 
 import static net.floodlightcontroller.proactiveloadbalancer.ProactiveLoadBalancer.SRC_RANGE;
 
-public class TrafficMeasurement implements IFloodlightModule, ITrafficMeasurementService, IOFSwitchListener {
+public class TrafficMeasurementService implements IFloodlightModule, ITrafficMeasurementService, IOFSwitchListener {
 
-    private static Logger log = LoggerFactory.getLogger(TrafficMeasurement.class);
+    private static Logger log = LoggerFactory.getLogger(TrafficMeasurementService.class);
 
     // Constants
     private static final int INCOMING_TABLE_ID_OFFSET = 1;
@@ -142,7 +142,7 @@ public class TrafficMeasurement implements IFloodlightModule, ITrafficMeasuremen
         log.info("Adding switch {}.", dpid);
         trafficTrees.put(dpid, BinaryTree.inflate(SRC_RANGE, 0L, prefix -> prefix.equals(SRC_RANGE)));
 
-        // Install rules
+        // Install flows
         log.info("Installing flows on switch {}", dpid);
         if (switchManager.getActiveSwitch(dpid) != null) {
             installFlows(switchManager.getActiveSwitch(dpid), trafficTrees.get(dpid));
@@ -162,8 +162,8 @@ public class TrafficMeasurement implements IFloodlightModule, ITrafficMeasuremen
         trafficTrees.remove(dpid);
 
         // TODO do nothing?
-//        // Uninstall rules from switch
-//        log.info("Uninstalling rules from switch {}", dpid);
+//        // Uninstall flows from switch
+//        log.info("Uninstalling flows from switch {}", dpid);
 //        if (switchManager.getActiveSwitch(dpid) != null) {
 //            installFlows(switchManager.getActiveSwitch(dpid), trafficTrees.get(dpid));
 //        }
@@ -281,8 +281,8 @@ public class TrafficMeasurement implements IFloodlightModule, ITrafficMeasuremen
         // TODO Install bypass?
         measurementTree.traversePreOrder((node, prefix) -> {
             if (node.isLeaf()) {
-                FlowBuilder.addIncomingTrafficMeasurement(ofSwitch, getIncomingTableId(dpid), prefix, vip);
-                FlowBuilder.addOutgoingTrafficMeasurement(ofSwitch, getOutgoingTableId(dpid), prefix, vip);
+                FlowModBuilder.addIncomingTrafficMeasurement(ofSwitch, getIncomingTableId(dpid), prefix, vip);
+                FlowModBuilder.addOutgoingTrafficMeasurement(ofSwitch, getOutgoingTableId(dpid), prefix, vip);
             }
         });
     }

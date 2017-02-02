@@ -3,11 +3,11 @@ package net.floodlightcontroller.proactiveloadbalancer;
 import org.projectfloodlight.openflow.types.IPv4Address;
 import org.projectfloodlight.openflow.types.IPv4AddressWithMask;
 
-public class Rule {
+class Flow {
 	private final IPv4AddressWithMask prefix;
 	private final IPv4Address dip;
 	
-	public Rule(IPv4AddressWithMask prefix, IPv4Address dip) {
+	public Flow(IPv4AddressWithMask prefix, IPv4Address dip) {
 		this.prefix = prefix;
 		this.dip = dip;
 	}
@@ -37,10 +37,10 @@ public class Rule {
 		if (obj == null) {
 			return false;
 		}
-		if (!(obj instanceof Rule)) {
+		if (!(obj instanceof Flow)) {
 			return false;
 		}
-		Rule other = (Rule) obj;
+		Flow other = (Flow) obj;
 		if (dip == null) {
 			if (other.dip != null) {
 				return false;
@@ -60,6 +60,6 @@ public class Rule {
 
 	@Override
 	public String toString() {
-		return "Rule [prefix=" + prefix + ", dip=" + dip + "]";
+		return "Flow [prefix=" + prefix + ", dip=" + dip + "]";
 	}
 }
