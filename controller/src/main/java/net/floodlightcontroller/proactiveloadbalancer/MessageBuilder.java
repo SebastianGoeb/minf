@@ -52,25 +52,25 @@ class MessageBuilder {
     }
 
     // Utilities
-    private static TableId getBaseTableId(DatapathId dpid) {
-        return TableId.of(((short) dpid.getLong() - 1) * NUM_TABLES + 1);
+    private static short getBaseTableId(DatapathId dpid) {
+        return (short) ((dpid.getLong() - 1) * NUM_TABLES + 1);
     }
 
     private static TableId getIngressMeasurementTableId(DatapathId dpid) {
-        return TableId.of(getBaseTableId(dpid).getValue() + INGRESS_MEASUREMENT_TABLE_ID_OFFSET);
+        return TableId.of(getBaseTableId(dpid) + INGRESS_MEASUREMENT_TABLE_ID_OFFSET);
     }
 
     // TODO make private
     static TableId getLoadBalancingTableId(DatapathId dpid) {
-        return TableId.of(getBaseTableId(dpid).getValue() + LOAD_BALANCING_TABLE_ID_OFFSET);
+        return TableId.of(getBaseTableId(dpid) + LOAD_BALANCING_TABLE_ID_OFFSET);
     }
 
     private static TableId getEgressMeasurementTableId(DatapathId dpid) {
-        return TableId.of(getBaseTableId(dpid).getValue() + EGRESS_MEASUREMENT_TABLE_ID_OFFSET);
+        return TableId.of(getBaseTableId(dpid) + EGRESS_MEASUREMENT_TABLE_ID_OFFSET);
     }
 
     private static TableId getForwardingTableId(DatapathId dpid) {
-        return TableId.of(getBaseTableId(dpid).getValue() + FORWARDING_TABLE_ID_OFFSET);
+        return TableId.of(getBaseTableId(dpid) + FORWARDING_TABLE_ID_OFFSET);
     }
 
     // Load balancing flows
