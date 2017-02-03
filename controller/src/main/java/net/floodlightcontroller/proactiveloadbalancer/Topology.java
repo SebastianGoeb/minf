@@ -2,21 +2,27 @@ package net.floodlightcontroller.proactiveloadbalancer;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-import java.util.List;
+import java.util.Collections;
+import java.util.Set;
 
 public class Topology {
 
     @JsonProperty
-    private List<Bridge> bridges;
+    private Set<Bridge> bridges;
 
     @JsonProperty
-    private List<Host> hosts;
+    private Set<Host> hosts;
 
-    public List<Bridge> getBridges() {
+    Topology() {
+        bridges = Collections.emptySet();
+        hosts = Collections.emptySet();
+    }
+
+    Set<Bridge> getBridges() {
         return bridges;
     }
 
-    public List<Host> getHosts() {
+    Set<Host> getHosts() {
         return hosts;
     }
 }

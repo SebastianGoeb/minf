@@ -2,14 +2,16 @@ package net.floodlightcontroller.proactiveloadbalancer;
 
 import net.floodlightcontroller.core.module.IFloodlightService;
 import org.projectfloodlight.openflow.types.DatapathId;
-import org.projectfloodlight.openflow.types.IPv4Address;
+
+import java.util.Set;
 
 public interface ITrafficMeasurementService extends IFloodlightService {
-    void setVip(IPv4Address vip);
+    // Config
+    void setDpids(Set<DatapathId> dpids);
 
-    void addSwitch(DatapathId dpid);
-    DatapathId deleteSwitch(DatapathId dpid);
-
+    // Listeners
     void addMeasurementListener(IMeasurementListener listener);
-    boolean removeMeasurementListener(IMeasurementListener listener);
+
+    // Measurements
+    PrefixTrie<Long> getMeasurement(DatapathId dpid);
 }

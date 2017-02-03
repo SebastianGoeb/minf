@@ -6,25 +6,25 @@ import org.projectfloodlight.openflow.types.IPv4AddressWithMask;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 
-class BinaryTree<T> {
+class PrefixTrie<T> {
 
     private Node<T> root;
     private IPv4AddressWithMask rootPrefix;
 
-    private BinaryTree(IPv4AddressWithMask rootPrefix, Node<T> root) {
+    private PrefixTrie(IPv4AddressWithMask rootPrefix, Node<T> root) {
         this.rootPrefix = rootPrefix;
         this.root = root;
     }
 
-    static <T> BinaryTree<T> copy(BinaryTree<T> tree) {
-        return new BinaryTree<>(tree.rootPrefix, Node.copy(tree.root));
+    static <T> PrefixTrie<T> copy(PrefixTrie<T> tree) {
+        return new PrefixTrie<>(tree.rootPrefix, Node.copy(tree.root));
     }
 
-    static <T> BinaryTree<T> inflate(IPv4AddressWithMask rootPrefix, T defaultValue, Function<IPv4AddressWithMask, Boolean> shouldExpand) {
-        BinaryTree<T> newTree = new BinaryTree<>(rootPrefix, Node.with(defaultValue));
+    static <T> PrefixTrie<T> inflate(IPv4AddressWithMask rootPrefix, T defaultValue, Function<IPv4AddressWithMask, Boolean> shouldExpand) {
+        PrefixTrie<T> newTree = new PrefixTrie<>(rootPrefix, Node.with(defaultValue));
         newTree.traversePreOrder((node, prefix) -> {
             if (shouldExpand.apply(prefix)) {
-                node.expand(defaultValue);
+                node.expand(defaultValue, defaultValue);
             }
         });
         return newTree;
@@ -44,6 +44,7 @@ class BinaryTree<T> {
 
     // Value class
     static final class Node<T> {
+        private Node<T> parent;
         private Node<T> child0;
         private Node<T> child1;
         private T value;
@@ -59,11 +60,17 @@ class BinaryTree<T> {
             Node<T> newNode = Node.with(node.value);
             if (node.child0 != null) {
                 newNode.child0 = Node.copy(node.child0);
+                newNode.child0.parent = newNode;
             }
             if (node.child1 != null) {
                 newNode.child1 = Node.copy(node.child1);
+                newNode.child1.parent = newNode;
             }
             return newNode;
+        }
+
+        Node<T> getParent() {
+            return parent;
         }
 
         Node<T> getChild0() {
@@ -87,13 +94,21 @@ class BinaryTree<T> {
             return child0 == null && child1 == null;
         }
 
-        void expand(T value) {
+        boolean isRoot() {
+            return parent == null;
+        }
+
+        void expand(T value0, T value1) {
             child0 = Node.with(value);
+            child0.parent = this;
             child1 = Node.with(value);
+            child1.parent = this;
         }
 
         void collapse() {
+            child0.parent = null;
             child0 = null;
+            child1.parent = null;
             child1 = null;
         }
 

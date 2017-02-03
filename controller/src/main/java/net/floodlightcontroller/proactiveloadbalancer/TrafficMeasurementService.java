@@ -15,47 +15,85 @@ import net.floodlightcontroller.threadpool.IThreadPoolService;
 import org.projectfloodlight.openflow.protocol.*;
 import org.projectfloodlight.openflow.protocol.match.Match;
 import org.projectfloodlight.openflow.protocol.match.MatchField;
-import org.projectfloodlight.openflow.types.*;
+import org.projectfloodlight.openflow.types.DatapathId;
+import org.projectfloodlight.openflow.types.IPv4Address;
+import org.projectfloodlight.openflow.types.IPv4AddressWithMask;
+import org.projectfloodlight.openflow.types.Masked;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
 
-import static net.floodlightcontroller.proactiveloadbalancer.ProactiveLoadBalancer.SRC_RANGE;
+import static net.floodlightcontroller.proactiveloadbalancer.ProactiveLoadBalancer.CLIENT_RANGE;
 
 public class TrafficMeasurementService implements IFloodlightModule, ITrafficMeasurementService, IOFSwitchListener {
 
-    private static Logger log = LoggerFactory.getLogger(TrafficMeasurementService.class);
+    private static final Logger LOG = LoggerFactory.getLogger(TrafficMeasurementService.class);
 
     // Constants
-    private static final int INCOMING_TABLE_ID_OFFSET = 1;
-    private static final int OUTGOING_TABLE_ID_OFFSET = 3;
-    private static final double DEFAULT_RELATIVE_THRESHOLD = 0.1; // 10% of total traffic
-    private static final long INTERVAL = 60; // 1 minute
+    // TODO configurable?
+    private static final long MEASUREMENT_INTERVAL = 60; // 1 minute
+    // TODO configurable?
+    private static final double RELATIVE_THRESHOLD = 0.1; // 10% of total traffic
 
     // Services
     private IOFSwitchService switchManager;
     private IThreadPoolService threadPoolService;
 
-    // Configurable fields
+    // Listeners
     private Set<IMeasurementListener> listeners = new HashSet<>();
-    private IPv4Address vip = null;
 
-    // Runtime fields
-    // TODO Do we even need to store these? They only get sent along to the listeners.
-    private Map<DatapathId, BinaryTree<Long>> trafficTrees = new HashMap<>();
-    // TODO configurable?
-    private double relativeThreshold = DEFAULT_RELATIVE_THRESHOLD;
+    // Measurements
+    private Map<DatapathId, PrefixTrie<Long>> measurements = new HashMap<>();
 
-    // Static utilities
-    private static TableId getIncomingTableId(DatapathId dpid) {
-        return TableId.of(ProactiveLoadBalancer.getBaseTableId(dpid).getValue() + INCOMING_TABLE_ID_OFFSET);
+    // Utilities
+    private static PrefixTrie<Long> adjustedMeasurement(PrefixTrie<Long> measurement) {
+        // Expand leaf nodes above traffic threshold, collapse internal nodes below threshold
+        long absoluteThreshold = Math.max(2L, (long) (measurement.getRoot().getValue() * RELATIVE_THRESHOLD));
+        measurement.traversePreOrder((node, prefix) -> {
+            if (node.getValue() >= absoluteThreshold && node.isLeaf() && prefix.getMask().asCidrMaskLength() < 32) {
+                node.expand(node.getValue() / 2L, node.getValue() / 2L + node.getValue() % 2L);
+            } else if (node.getValue() < absoluteThreshold && !node.isLeaf() && !node.isRoot()) {
+                node.collapse();
+            }
+        });
+        return measurement;
     }
 
-    private static TableId getOutgoingTableId(DatapathId dpid) {
-        return TableId.of(ProactiveLoadBalancer.getBaseTableId(dpid).getValue() + OUTGOING_TABLE_ID_OFFSET);
+    private static Map<IPv4AddressWithMask, Long> getByteCounts(IOFSwitch ofSwitch, OFFlowStatsRequest statsRequest) {
+        Objects.requireNonNull(ofSwitch);
+
+        List<OFFlowStatsReply> statsReplies;
+        try {
+            statsReplies = ofSwitch
+                    .writeStatsRequest(statsRequest)
+                    .get();
+        } catch (InterruptedException | ExecutionException e) {
+            return null;
+        }
+
+        // Record prefix and byte count for all flows
+        Map<IPv4AddressWithMask, Long> byteCounts = new HashMap<>();
+        for (OFFlowStatsReply reply : statsReplies) {
+            for (OFFlowStatsEntry entry : reply.getEntries()) {
+                Masked<IPv4Address> prefix = getMaskedField(entry.getMatch(), MatchField.IPV4_SRC);
+                long byteCount = entry.getByteCount().getValue();
+                byteCounts.put(prefix.getValue().withMask(prefix.getMask()), byteCount);
+            }
+        }
+        return byteCounts;
+    }
+
+
+    private static Masked<IPv4Address> getMaskedField(Match match, MatchField<IPv4Address> mf) {
+        if (match.isExact(mf)) {
+            return Masked.of(match.get(mf), IPv4Address.FULL_MASK);
+        } else if (match.isPartiallyMasked(mf)) {
+            return match.getMasked(mf);
+        } else {
+            return IPv4AddressWithMask.NONE;
+        }
     }
 
     // ----------------------------------------------------------------
@@ -88,7 +126,12 @@ public class TrafficMeasurementService implements IFloodlightModule, ITrafficMea
         switchManager.addOFSwitchListener(this);
 
         // Start measurement
-        threadPoolService.getScheduledExecutor().scheduleWithFixedDelay(this::updateTraffic, INTERVAL, INTERVAL, TimeUnit.SECONDS);
+//        threadPoolService.getScheduledExecutor().scheduleWithFixedDelay(() -> {
+//            collectMeasurements();
+//            deleteMeasurementFlows();
+//            addMeasurementFlows();
+//            dispatchListeners();
+//        }, MEASUREMENT_INTERVAL, MEASUREMENT_INTERVAL, TimeUnit.SECONDS);
     }
 
     // ----------------------------------------------------------------
@@ -104,8 +147,14 @@ public class TrafficMeasurementService implements IFloodlightModule, ITrafficMea
 
     @Override
     public void switchActivated(DatapathId dpid) {
-        if (trafficTrees.containsKey(dpid)) {
-            installFlows(switchManager.getActiveSwitch(dpid), trafficTrees.get(dpid));
+        // TODO merge with addMeasurementFlows?
+        if (measurements.containsKey(dpid)) {
+            IOFSwitch ofSwitch = switchManager.getActiveSwitch(dpid);
+            OFFactory factory = ofSwitch.getOFFactory();
+            PrefixTrie<Long> measurement = measurements.get(dpid);
+            for (OFFlowMod flowMod : MessageBuilder.addMeasurementFlows(dpid, factory, measurement)) {
+                ofSwitch.write(flowMod);
+            }
         }
     }
 
@@ -124,50 +173,19 @@ public class TrafficMeasurementService implements IFloodlightModule, ITrafficMea
     // ----------------------------------------------------------------
     // - ITrafficMeasurementService methods
     // ----------------------------------------------------------------
-
     @Override
-    public void setVip(IPv4Address vip) {
-        this.vip = vip;
-    }
+    public void setDpids(Set<DatapathId> dpids) {
+        deleteMeasurementFlows();
+        deleteFallbackFlows();
 
-    @Override
-    public void addSwitch(DatapathId dpid) {
-        // If already present, ignore
-        if (trafficTrees.containsKey(dpid)) {
-            log.info("Switch {} already registered. Ignoring request to add.", dpid);
-            return;
+        // Reset measurements
+        measurements.clear();
+        for (DatapathId dpid : dpids) {
+            measurements.put(dpid, PrefixTrie.inflate(CLIENT_RANGE, 0L, prefix -> prefix.equals(CLIENT_RANGE)));
         }
 
-        // Add switch
-        log.info("Adding switch {}.", dpid);
-        trafficTrees.put(dpid, BinaryTree.inflate(SRC_RANGE, 0L, prefix -> prefix.equals(SRC_RANGE)));
-
-        // Install flows
-        log.info("Installing flows on switch {}", dpid);
-        if (switchManager.getActiveSwitch(dpid) != null) {
-            installFlows(switchManager.getActiveSwitch(dpid), trafficTrees.get(dpid));
-        }
-    }
-
-    @Override
-    public DatapathId deleteSwitch(DatapathId dpid) {
-        // If not present, ignore
-        if (!trafficTrees.containsKey(dpid)) {
-            log.info("Switch {} not registered. Ignoring request to delete.", dpid);
-            return null;
-        }
-
-        // Delete switch
-        log.info("Deleted switch {}", dpid);
-        trafficTrees.remove(dpid);
-
-        // TODO do nothing?
-//        // Uninstall flows from switch
-//        log.info("Uninstalling flows from switch {}", dpid);
-//        if (switchManager.getActiveSwitch(dpid) != null) {
-//            installFlows(switchManager.getActiveSwitch(dpid), trafficTrees.get(dpid));
-//        }
-        return dpid;
+        addMeasurementFlows();
+        addFallbackFlows();
     }
 
     @Override
@@ -176,151 +194,127 @@ public class TrafficMeasurementService implements IFloodlightModule, ITrafficMea
     }
 
     @Override
-    public boolean removeMeasurementListener(IMeasurementListener listener) {
-        return listeners.remove(listener);
+    public PrefixTrie<Long> getMeasurement(DatapathId dpid) {
+        return measurements.get(dpid);
     }
 
     // ----------------------------------------------------------------
     // - helper methods
     // ----------------------------------------------------------------
-    private void updateTraffic() {
-        log.info("Updating traffic measurements");
-        for (DatapathId dpid : trafficTrees.keySet()) {
+    private void collectMeasurements() {
+        LOG.info("Collecting traffic measurements");
+        for (DatapathId dpid : measurements.keySet()) {
             IOFSwitch ofSwitch = switchManager.getActiveSwitch(dpid);
+            if (ofSwitch != null) {
+                // Build stats requests
+                OFFactory factory = ofSwitch.getOFFactory();
+                OFFlowStatsRequest ingressRequest = MessageBuilder.requestIngressMeasurementFlowStats(dpid, factory);
+                OFFlowStatsRequest egressRequest = MessageBuilder.requestEgressMeasurementFlowStats(dpid, factory);
 
-            // Skip disconnected switches
-            if (ofSwitch == null) {
-                continue;
+                // Read Stats
+                Map<IPv4AddressWithMask, Long> ingressByteCounts = getByteCounts(ofSwitch, ingressRequest);
+                Map<IPv4AddressWithMask, Long> egressByteCounts = getByteCounts(ofSwitch, egressRequest);
+                if (ingressByteCounts == null || egressByteCounts == null) {
+                    LOG.warn("Can't retrieve stats from switch {}. Skipping.", dpid);
+                    continue;
+                }
+                if (!Objects.equals(ingressByteCounts.keySet(), egressByteCounts.keySet())) {
+                    LOG.warn("Ingress and egress flows for switch {} mismatched. " +
+                            "Traffic measurements may be incorrect.", dpid);
+                }
+
+                // Inflate measurement tree (one leaf node for each client prefix)
+                Set<IPv4AddressWithMask> prefixes = Sets.union(ingressByteCounts.keySet(), egressByteCounts.keySet());
+                Queue<IPv4AddressWithMask> prefixesInPreOrder = new PriorityQueue<>(prefixes);
+                PrefixTrie<Long> measurement = PrefixTrie.inflate(CLIENT_RANGE, 0L, prefix -> {
+                    while (prefix.equals(prefixesInPreOrder.peek())) {
+                        prefixesInPreOrder.remove();
+                    }
+                    return prefixesInPreOrder.peek() != null && prefix.contains(prefixesInPreOrder.peek().getValue());
+                });
+
+                // Fill in traffic data
+                measurement.traversePostOrder((node, prefix) -> {
+                    long value = 0;
+                    if (ingressByteCounts.containsKey(prefix)) {
+                        value += ingressByteCounts.get(prefix);
+                    }
+                    if (egressByteCounts.containsKey(prefix)) {
+                        value += egressByteCounts.get(prefix);
+                    }
+                    // Aggregate child traffic as we go up the tree
+                    if (!node.isLeaf()) {
+                        value += node.getChild0().getValue();
+                        value += node.getChild1().getValue();
+                    }
+                    node.setValue(value);
+                });
+
+                // Save traffic data for later use by other modules like load balancer
+                measurements.put(dpid, PrefixTrie.copy(measurement));
             }
-
-            // Read Stats
-            Map<IPv4AddressWithMask, Long> incomingByteCounts;
-            Map<IPv4AddressWithMask, Long> outgoingByteCounts;
-            try {
-                incomingByteCounts = getByteCounts(ofSwitch, getIncomingTableId(ofSwitch.getId()));
-                outgoingByteCounts = getByteCounts(ofSwitch, getOutgoingTableId(ofSwitch.getId()));
-            } catch (ExecutionException | InterruptedException e) {
-                log.warn("Can't retrieve stats from switch {}. Skip.", ofSwitch.getId(), e);
-                continue;
-            }
-
-            if (!Objects.equals(incomingByteCounts.keySet(), outgoingByteCounts.keySet())) {
-                log.warn("Incoming and outgoing flow prefixes for switch {} mismatched. Traffic measurements may be incorrect.", ofSwitch.getId());
-            }
-
-            // Inflate traffic tree (leaf node for each src prefix)
-            Queue<IPv4AddressWithMask> prefixesInPreOrder = new PriorityQueue<>(Sets.union(incomingByteCounts.keySet(), outgoingByteCounts.keySet()));
-            BinaryTree<Long> measurementTree = BinaryTree.inflate(SRC_RANGE, 0L, prefix -> {
-                while (prefix.equals(prefixesInPreOrder.peek())) {
-                    prefixesInPreOrder.remove();
-                }
-                return prefixesInPreOrder.peek() != null && prefix.contains(prefixesInPreOrder.peek().getValue());
-            });
-
-            // Fill in traffic data
-            measurementTree.traversePostOrder((node, prefix) -> {
-                long value = 0;
-                if (incomingByteCounts.containsKey(prefix)) {
-                    value += incomingByteCounts.get(prefix);
-                }
-                if (outgoingByteCounts.containsKey(prefix)) {
-                    value += outgoingByteCounts.get(prefix);
-                }
-                // Aggregate child traffic as we go up the tree
-                if (!node.isLeaf()) {
-                    value += node.getChild0().getValue();
-                    value += node.getChild1().getValue();
-                }
-                node.setValue(value);
-            });
-
-            // Save traffic data for later use by other modules like load balancer
-            trafficTrees.put(dpid, BinaryTree.copy(measurementTree));
-
-            // Dispatch listeners
-            for (IMeasurementListener listener : listeners) {
-                // TODO Should we really use the thread pool? Maybe send all measurements in batch for more intelligent processing?
-                threadPoolService.getScheduledExecutor().submit(() -> listener.newMeasurement(trafficTrees.get(dpid)));
-            }
-
-            // Expand leaf nodes above traffic threshold, collapse internal nodes below
-            long absoluteThreshold = (long) (measurementTree.getRoot().getValue() * relativeThreshold);
-            measurementTree.traversePreOrder((node, prefix) -> {
-                if (node.getValue() >= absoluteThreshold && node.isLeaf()) {
-                    node.expand(node.getValue() / 2);
-                } else if (node.getValue() < absoluteThreshold && !node.isLeaf()) {
-                    node.collapse();
-                }
-            });
-
-            // Install flows for next interval
-            installFlows(ofSwitch, measurementTree);
         }
     }
 
-    private void installFlows(IOFSwitch ofSwitch, BinaryTree<Long> measurementTree) {
-        Objects.requireNonNull(ofSwitch);
-
-        DatapathId dpid = ofSwitch.getId();
-        log.info("Install measurement flows on switch {}", dpid);
-
-        // Uninstall previous flows
-        ofSwitch.write(ofSwitch
-            .getOFFactory()
-            .buildFlowDelete()
-            .setTableId(getIncomingTableId(dpid))
-            .build());
-
-        ofSwitch.write(ofSwitch
-            .getOFFactory()
-            .buildFlowDelete()
-            .setTableId(getOutgoingTableId(dpid))
-            .build());
-
-        // Install new flows
-        // TODO Install bypass?
-        measurementTree.traversePreOrder((node, prefix) -> {
-            if (node.isLeaf()) {
-                FlowModBuilder.addIncomingTrafficMeasurement(ofSwitch, getIncomingTableId(dpid), prefix, vip);
-                FlowModBuilder.addOutgoingTrafficMeasurement(ofSwitch, getOutgoingTableId(dpid), prefix, vip);
-            }
-        });
-    }
-
-    private static Map<IPv4AddressWithMask, Long> getByteCounts(IOFSwitch ofSwitch, TableId tableId) throws ExecutionException, InterruptedException {
-        Objects.requireNonNull(ofSwitch);
-
-        // Request stats
-        OFFlowStatsRequest statsRequest = ofSwitch
-            .getOFFactory()
-            .buildFlowStatsRequest()
-            .setTableId(tableId)
-            .build();
-
-        List<OFFlowStatsReply> statsReplies = ofSwitch
-            .writeStatsRequest(statsRequest)
-            .get();
-
-        // Record prefix and byte count for all flows
-        Map<IPv4AddressWithMask, Long> byteCounts = new HashMap<>();
-        for (OFFlowStatsReply reply : statsReplies) {
-            for (OFFlowStatsEntry entry : reply.getEntries()) {
-                Masked<IPv4Address> prefix = getMaskedField(entry.getMatch(), MatchField.IPV4_SRC);
-                long byteCount = entry.getByteCount().getValue();
-                byteCounts.put(prefix.getValue().withMask(prefix.getMask()), byteCount);
+    private void deleteMeasurementFlows() {
+        LOG.info("Deleting measurement flows");
+        for (DatapathId dpid : measurements.keySet()) {
+            IOFSwitch ofSwitch = switchManager.getActiveSwitch(dpid);
+            if (ofSwitch != null) {
+                OFFactory factory = ofSwitch.getOFFactory();
+                for (OFFlowMod flowMod : MessageBuilder.deleteMeasurementFlows(dpid, factory)) {
+                    ofSwitch.write(flowMod);
+                }
             }
         }
-        return byteCounts;
     }
 
+    private void addMeasurementFlows() {
+        LOG.info("Adding measurement flows");
+        for (DatapathId dpid : measurements.keySet()) {
+            IOFSwitch ofSwitch = switchManager.getActiveSwitch(dpid);
+            if (ofSwitch != null) {
+                // Adjust copy of measurement tree for next interval
+                PrefixTrie<Long> measurementCopy = adjustedMeasurement(PrefixTrie.copy(measurements.get(dpid)));
 
-    private static Masked<IPv4Address> getMaskedField(Match match, MatchField<IPv4Address> mf) {
-        if (match.isExact(mf)) {
-            return Masked.of(match.get(mf), IPv4Address.FULL_MASK);
-        } else if (match.isPartiallyMasked(mf)) {
-            return match.getMasked(mf);
-        } else {
-            return IPv4AddressWithMask.NONE;
+                // Add measurement flows
+                OFFactory factory = ofSwitch.getOFFactory();
+                for (OFFlowMod flowMod : MessageBuilder.addMeasurementFlows(dpid, factory, measurementCopy)) {
+                    ofSwitch.write(flowMod);
+                }
+            }
+        }
+    }
+
+    private void deleteFallbackFlows() {
+        LOG.info("Deleting fallback flows");
+        for (DatapathId dpid : measurements.keySet()) {
+            IOFSwitch ofSwitch = switchManager.getActiveSwitch(dpid);
+            if (ofSwitch != null) {
+                OFFactory factory = ofSwitch.getOFFactory();
+                for (OFFlowMod flowMod : MessageBuilder.deleteFallbackFlows(dpid, factory)) {
+                    ofSwitch.write(flowMod);
+                }
+            }
+        }
+    }
+
+    private void addFallbackFlows() {
+        LOG.info("Adding fallback flows");
+        for (DatapathId dpid : measurements.keySet()) {
+            IOFSwitch ofSwitch = switchManager.getActiveSwitch(dpid);
+            if (ofSwitch != null) {
+                OFFactory factory = ofSwitch.getOFFactory();
+                for (OFFlowMod flowMod : MessageBuilder.addFallbackFlows(dpid, factory)) {
+                    ofSwitch.write(flowMod);
+                }
+            }
+        }
+    }
+
+    private void dispatchListeners() {
+        for (IMeasurementListener listener : listeners) {
+            threadPoolService.getScheduledExecutor().submit(() -> listener.newMeasurement());
         }
     }
 }

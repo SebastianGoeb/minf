@@ -8,7 +8,8 @@ import org.projectfloodlight.openflow.types.DatapathId;
 import org.projectfloodlight.openflow.types.IPv4Address;
 
 import java.util.Collections;
-import java.util.List;
+import java.util.Objects;
+import java.util.Set;
 
 class Bridge {
 
@@ -20,27 +21,41 @@ class Bridge {
     @JsonProperty
     @JsonSerialize(contentUsing = ToStringSerializer.class)
     @JsonDeserialize(contentUsing = DatapathIdDeserializer.class)
-    private List<DatapathId> upstreamBridges;
+    private Set<DatapathId> upstreamBridges;
 
     @JsonProperty
     @JsonSerialize(contentUsing = ToStringSerializer.class)
     @JsonDeserialize(contentUsing = IPv4AddressDeserializer.class)
-    private List<IPv4Address> upstreamHosts;
+    private Set<IPv4Address> upstreamHosts;
 
-    public Bridge() {
-        upstreamBridges = Collections.emptyList();
-        upstreamHosts = Collections.emptyList();
+    Bridge() {
+        dpid = DatapathId.NONE;
+        upstreamBridges = Collections.emptySet();
+        upstreamHosts = Collections.emptySet();
     }
 
-    public DatapathId getDpid() {
+    DatapathId getDpid() {
         return dpid;
     }
 
-    public List<DatapathId> getUpstreamBridges() {
+    Set<DatapathId> getUpstreamBridges() {
         return upstreamBridges;
     }
 
-    public List<IPv4Address> getUpstreamHosts() {
+    Set<IPv4Address> getUpstreamHosts() {
         return upstreamHosts;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        Bridge bridge = (Bridge) o;
+        return Objects.equals(dpid, bridge.dpid);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(dpid);
     }
 }
