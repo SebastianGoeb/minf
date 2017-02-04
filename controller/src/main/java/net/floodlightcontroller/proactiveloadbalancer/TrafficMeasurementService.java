@@ -45,6 +45,9 @@ public class TrafficMeasurementService implements IFloodlightModule, ITrafficMea
     // Listeners
     private Set<IMeasurementListener> listeners = new HashSet<>();
 
+    // Config
+    private boolean enabled = false;
+
     // Measurements
     private Map<DatapathId, PrefixTrie<Long>> measurements = new HashMap<>();
 
@@ -87,7 +90,6 @@ public class TrafficMeasurementService implements IFloodlightModule, ITrafficMea
         }
         return byteCounts;
     }
-
 
     private static Masked<IPv4Address> getMaskedField(Match match, MatchField<IPv4Address> mf) {
         if (match.isExact(mf)) {
@@ -177,8 +179,25 @@ public class TrafficMeasurementService implements IFloodlightModule, ITrafficMea
     // - ITrafficMeasurementService methods
     // ----------------------------------------------------------------
     @Override
+    public void setEnabled(boolean enabled) {
+        if (this.enabled != enabled) {
+            this.enabled = enabled;
+
+            if (enabled) {
+                // install flows
+                addMeasurementFlows();
+            } else {
+                // uninstall flows
+                deleteMeasurementFlows();
+            }
+        }
+    }
+
+    @Override
     public void setDpids(Set<DatapathId> dpids) {
-        deleteMeasurementFlows();
+        if (enabled) {
+            deleteMeasurementFlows();
+        }
         deleteFallbackFlows();
 
         // Reset measurements
@@ -187,7 +206,9 @@ public class TrafficMeasurementService implements IFloodlightModule, ITrafficMea
             measurements.put(dpid, PrefixTrie.inflate(CLIENT_RANGE, 0L, prefix -> prefix.equals(CLIENT_RANGE)));
         }
 
-        addMeasurementFlows();
+        if (enabled) {
+            addMeasurementFlows();
+        }
         addFallbackFlows();
     }
 

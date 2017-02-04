@@ -7,6 +7,7 @@ import java.util.Set;
 
 public interface ITrafficMeasurementService extends IFloodlightService {
     // Config
+    void setEnabled(boolean enabled);
     void setDpids(Set<DatapathId> dpids);
 
     // Listeners
