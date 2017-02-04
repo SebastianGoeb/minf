@@ -18,18 +18,31 @@ class MessageBuilder {
 
     // Constants
     private static final U64 MEASUREMENT_COOKIE = U64.of(100);
+    // TODO merge with priorities?
+    private static final U64 LOAD_BALANCING_INGRESS_COOKIE = U64.of(100);
+    // TODO merge with priorities?
+    private static final U64 LOAD_BALANCING_EGRESS_COOKIE = U64.of(50);
     private static final U64 FALLBACK_COOKIE = U64.of(0);
+
     private static final int MEASUREMENT_PRIORITY = 100;
+    // TODO merge with measurement priority?
+    private static final int LOAD_BALANCING_INGRESS_PRIORITY = 100;
+    // TODO merge with measurement priority?
+    private static final int LOAD_BALANCING_EGRESS_PRIORITY = 50;
     private static final int FALLBACK_PRIORITY = 0;
+
     private static final int INGRESS_MEASUREMENT_TABLE_ID_OFFSET = 1;
     private static final int LOAD_BALANCING_TABLE_ID_OFFSET = 2;
     private static final int EGRESS_MEASUREMENT_TABLE_ID_OFFSET = 3;
     private static final int FORWARDING_TABLE_ID_OFFSET = 4;
     private static final short NUM_TABLES = 5;
+
     // TODO get at runtime?
     private static final MacAddress SWITCH_MAC = MacAddress.of("00:00:02:02:02:02");
     // TODO get at runtime?
     private static final Map<IPv4Address, MacAddress> SERVER_MACS = new HashMap<>();
+    // TODO get at runtime?
+    private static final Map<IPv4Address, MacAddress> DRIVER_MACS = new HashMap<>();
 
 
     static {
@@ -49,6 +62,17 @@ class MessageBuilder {
         SERVER_MACS.put(IPv4Address.of("10.4.1.3"), MacAddress.of("3e:ff:e6:a4:1e:1f"));
         SERVER_MACS.put(IPv4Address.of("10.4.2.2"), MacAddress.of("f6:2c:99:73:fc:d6"));
         SERVER_MACS.put(IPv4Address.of("10.4.2.3"), MacAddress.of("4e:b3:0c:da:61:23"));
+
+        DRIVER_MACS.put(IPv4Address.of("10.5.1.2"), MacAddress.of("5c:b9:01:7b:45:50"));
+        DRIVER_MACS.put(IPv4Address.of("10.5.1.3"), MacAddress.of("50:65:f3:e6:cf:d4"));
+        DRIVER_MACS.put(IPv4Address.of("10.5.1.4"), MacAddress.of("5c:b9:01:7b:35:a0"));
+        DRIVER_MACS.put(IPv4Address.of("10.5.1.5"), MacAddress.of("50:65:f3:e6:bf:14"));
+        DRIVER_MACS.put(IPv4Address.of("10.5.1.6"), MacAddress.of("5c:b9:01:7b:d1:38"));
+        DRIVER_MACS.put(IPv4Address.of("10.5.1.7"), MacAddress.of("50:65:f3:e6:bf:24"));
+        DRIVER_MACS.put(IPv4Address.of("10.5.1.8"), MacAddress.of("5c:b9:01:7b:27:28"));
+        DRIVER_MACS.put(IPv4Address.of("10.5.1.9"), MacAddress.of("50:65:f3:e6:bf:38"));
+        DRIVER_MACS.put(IPv4Address.of("10.5.1.10"), MacAddress.of("5c:b9:01:7b:27:74"));
+        DRIVER_MACS.put(IPv4Address.of("10.5.1.11"), MacAddress.of("50:65:f3:e6:9f:a8"));
     }
 
     // Utilities
@@ -60,8 +84,7 @@ class MessageBuilder {
         return TableId.of(getBaseTableId(dpid) + INGRESS_MEASUREMENT_TABLE_ID_OFFSET);
     }
 
-    // TODO make private
-    static TableId getLoadBalancingTableId(DatapathId dpid) {
+    private static TableId getLoadBalancingTableId(DatapathId dpid) {
         return TableId.of(getBaseTableId(dpid) + LOAD_BALANCING_TABLE_ID_OFFSET);
     }
 
@@ -73,78 +96,87 @@ class MessageBuilder {
         return TableId.of(getBaseTableId(dpid) + FORWARDING_TABLE_ID_OFFSET);
     }
 
-    // Load balancing flows
-    static OFFlowMod addIncomingLoadBalancing(OFFactory factory,
-            TableId tableId,
-            IPv4AddressWithMask prefix,
-            IPv4Address vip,
-            IPv4Address dip) {
-        OFInstructions instructions = factory.instructions();
-
-        Match match = buildIncomingMatch(factory, vip, prefix);
-
-        List<OFAction> actionList = buildIncomingActionList(factory, dip);
-
-        List<OFInstruction> instructionList = Arrays.asList(
-                instructions.applyActions(actionList),
-                instructions.gotoTable(TableId.of(tableId.getValue() + 1)));
-
-        // TODO Transitions?
-
-        return factory
-                .buildFlowAdd()
-                .setTableId(tableId)
-                .setMatch(match)
-                .setInstructions(instructionList)
-                .build();
+    static List<OFFlowMod> deleteLoadBalancingFlows(DatapathId dpid, OFFactory factory, IPv4Address vip) {
+        throw new UnsupportedOperationException();
     }
 
-    static OFFlowMod deleteStrictIncomingLoadBalancing(OFFactory factory,
-            TableId tableId,
-            IPv4AddressWithMask prefix,
-            IPv4Address vip,
-            IPv4Address dip) {
-        OFInstructions instructions = factory.instructions();
+    static List<OFFlowMod> addLoadBalancingFlows(DatapathId dpid, OFFactory factory, IPv4Address vip, Set<Flow> flows) {
+        // Preconditions
+        Objects.requireNonNull(dpid);
+        Objects.requireNonNull(factory);
+        Objects.requireNonNull(vip);
+        Objects.requireNonNull(flows);
 
-        Match match = buildIncomingMatch(factory, vip, prefix);
-
-        List<OFAction> actionList = buildIncomingActionList(factory, dip);
-
-        List<OFInstruction> instructionList = Arrays.asList(
-                instructions.applyActions(actionList),
-                instructions.gotoTable(TableId.of(tableId.getValue() + 1)));
-
-        // TODO Transitions?
-
-        return factory
-                .buildFlowDeleteStrict()
-                .setTableId(tableId)
-                .setMatch(match)
-                .setInstructions(instructionList)
-                .build();
-    }
-
-    private static Match buildIncomingMatch(OFFactory factory, IPv4Address vip, IPv4AddressWithMask prefix) {
-        return factory
-                .buildMatch()
-                .setExact(MatchField.ETH_TYPE, EthType.IPv4)
-                .setExact(MatchField.IPV4_DST, vip)
-                .setMasked(MatchField.IPV4_SRC, prefix)
-                .build();
-    }
-
-    private static List<OFAction> buildIncomingActionList(OFFactory factory, IPv4Address dip) {
+        // OpenFlow
         OFActions actions = factory.actions();
-        switch (factory.getVersion()) {
-            case OF_13:
-                OFOxms oxms = factory.oxms();
-                return Arrays.asList(
-                        actions.setField(oxms.ethSrc(SWITCH_MAC)),
-                        actions.setField(oxms.ethDst(SERVER_MACS.get(dip))),
-                        actions.setField(oxms.ipv4Dst(dip)));
-            default:
-                throw new UnsupportedOperationException(factory.getVersion().toString() + " not supported");
+        OFOxms oxms = factory.oxms();
+        OFInstructions instructions = factory.instructions();
+
+        // Table ids
+        TableId loadBalancingTableId = getLoadBalancingTableId(dpid);
+        TableId egressMeasurementTableId = getEgressMeasurementTableId(dpid);
+
+        // Add ingress and egress load balancing flows
+        List<OFFlowMod> flowMods = new LinkedList<>();
+        for (Flow flow : flows) {
+            IPv4Address dip = flow.getDip();
+            IPv4AddressWithMask prefix = flow.getPrefix();
+
+            // Ingress
+            Match ingressMatch = factory
+                    .buildMatch()
+                    .setExact(MatchField.ETH_TYPE, EthType.IPv4)
+                    .setExact(MatchField.IPV4_DST, vip)
+                    .setMasked(MatchField.IPV4_SRC, prefix)
+                    .build();
+
+            List<OFAction> ingressActionList = Arrays.asList(
+                    actions.setField(oxms.ethSrc(SWITCH_MAC)),
+                    actions.setField(oxms.ethDst(SERVER_MACS.get(dip))),
+                    actions.setField(oxms.ipv4Dst(dip)));
+
+            List<OFInstruction> ingressInstructionList = Arrays.asList(
+                    instructions.applyActions(ingressActionList),
+                    instructions.gotoTable(egressMeasurementTableId));
+
+            flowMods.add(factory
+                    .buildFlowAdd()
+                    .setTableId(loadBalancingTableId)
+                    .setCookie(LOAD_BALANCING_INGRESS_COOKIE)
+                    .setPriority(LOAD_BALANCING_INGRESS_PRIORITY)
+                    .setMatch(ingressMatch)
+                    .setInstructions(ingressInstructionList)
+                    .build());
+
+            // Egress
+            Match egressMatch = factory
+                    .buildMatch()
+                    .setExact(MatchField.ETH_TYPE, EthType.IPv4)
+                    .setMasked(MatchField.IPV4_DST, prefix)
+                    .build();
+
+            List<OFAction> egressActionList = Arrays.asList(
+                    actions.setField(oxms.ethSrc(SWITCH_MAC)),
+                    actions.setField(oxms.ethDst(DRIVER_MACS.get(dip))),
+                    actions.setField(oxms.ipv4Src(vip)));
+
+            List<OFInstruction> egressInstructionList = Arrays.asList(
+                    instructions.applyActions(egressActionList),
+                    instructions.gotoTable(egressMeasurementTableId));
+
+            flowMods.add(factory
+                    .buildFlowAdd()
+                    .setTableId(loadBalancingTableId)
+                    .setCookie(LOAD_BALANCING_EGRESS_COOKIE)
+                    .setPriority(LOAD_BALANCING_EGRESS_PRIORITY)
+                    .setMatch(egressMatch)
+                    .setInstructions(egressInstructionList)
+                    .build());
+
+            // TODO Transitions?
         }
+
+        return flowMods;
     }
 
     static List<OFFlowMod> deleteMeasurementFlows(DatapathId dpid, OFFactory factory) {
@@ -284,16 +316,26 @@ class MessageBuilder {
     }
 
     static OFFlowStatsRequest requestIngressMeasurementFlowStats(DatapathId dpid, OFFactory factory) {
+        // Preconditions
+        Objects.requireNonNull(dpid);
+        Objects.requireNonNull(factory);
+
         return factory
                 .buildFlowStatsRequest()
+                .setMatch(factory.buildMatch().build())
                 .setTableId(getIngressMeasurementTableId(dpid))
                 .setCookie(MEASUREMENT_COOKIE)
                 .build();
     }
 
     static OFFlowStatsRequest requestEgressMeasurementFlowStats(DatapathId dpid, OFFactory factory) {
+        // Preconditions
+        Objects.requireNonNull(dpid);
+        Objects.requireNonNull(factory);
+
         return factory
                 .buildFlowStatsRequest()
+                .setMatch(factory.buildMatch().build())
                 .setTableId(getEgressMeasurementTableId(dpid))
                 .setCookie(MEASUREMENT_COOKIE)
                 .build();

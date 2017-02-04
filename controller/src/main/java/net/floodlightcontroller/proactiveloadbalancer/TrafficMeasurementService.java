@@ -24,6 +24,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 
 import static net.floodlightcontroller.proactiveloadbalancer.ProactiveLoadBalancer.CLIENT_RANGE;
 
@@ -64,12 +65,14 @@ public class TrafficMeasurementService implements IFloodlightModule, ITrafficMea
     private static Map<IPv4AddressWithMask, Long> getByteCounts(IOFSwitch ofSwitch, OFFlowStatsRequest statsRequest) {
         Objects.requireNonNull(ofSwitch);
 
+        LOG.warn("Getting byte counts from switch {} table {}", ofSwitch.getId(), statsRequest.getTableId());
         List<OFFlowStatsReply> statsReplies;
         try {
             statsReplies = ofSwitch
                     .writeStatsRequest(statsRequest)
                     .get();
         } catch (InterruptedException | ExecutionException e) {
+            LOG.warn("Unable to get byte counts from switch {}", ofSwitch.getId(), e);
             return null;
         }
 
@@ -126,12 +129,12 @@ public class TrafficMeasurementService implements IFloodlightModule, ITrafficMea
         switchManager.addOFSwitchListener(this);
 
         // Start measurement
-//        threadPoolService.getScheduledExecutor().scheduleWithFixedDelay(() -> {
-//            collectMeasurements();
-//            deleteMeasurementFlows();
-//            addMeasurementFlows();
-//            dispatchListeners();
-//        }, MEASUREMENT_INTERVAL, MEASUREMENT_INTERVAL, TimeUnit.SECONDS);
+        threadPoolService.getScheduledExecutor().scheduleWithFixedDelay(() -> {
+            collectMeasurements();
+            deleteMeasurementFlows();
+            addMeasurementFlows();
+            dispatchListeners();
+        }, MEASUREMENT_INTERVAL, MEASUREMENT_INTERVAL, TimeUnit.SECONDS);
     }
 
     // ----------------------------------------------------------------
