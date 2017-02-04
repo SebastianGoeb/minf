@@ -14,5 +14,5 @@ public interface ITrafficMeasurementService extends IFloodlightService {
     void addMeasurementListener(IMeasurementListener listener);
 
     // Measurements
-    PrefixTrie<Long> getMeasurement(DatapathId dpid);
+    PrefixTrie<Long> getMeasurement(DatapathId dpid) throws IllegalStateException;
 }

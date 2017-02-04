@@ -24,6 +24,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 import static net.floodlightcontroller.proactiveloadbalancer.ProactiveLoadBalancer.CLIENT_RANGE;
@@ -47,10 +48,11 @@ public class TrafficMeasurementService implements IFloodlightModule, ITrafficMea
 
     // Config
     private boolean enabled = false;
-    private Set<DatapathId> dpids;
+    private Set<DatapathId> dpids = new HashSet<>();
 
     // Measurements
     private Map<DatapathId, PrefixTrie<Long>> measurements = new HashMap<>();
+    private ScheduledFuture<?> collectionFuture;
 
     // Utilities
     private static PrefixTrie<Long> adjustedMeasurement(PrefixTrie<Long> measurement) {
@@ -130,14 +132,6 @@ public class TrafficMeasurementService implements IFloodlightModule, ITrafficMea
     public void startUp(FloodlightModuleContext context) throws FloodlightModuleException {
         // Services
         switchManager.addOFSwitchListener(this);
-
-        // Start measurement
-        threadPoolService.getScheduledExecutor().scheduleWithFixedDelay(() -> {
-            collectAllMeasurements();
-            deleteAllMeasurementFlows();
-            addAllMeasurementFlows();
-            dispatchListeners();
-        }, MEASUREMENT_INTERVAL, MEASUREMENT_INTERVAL, TimeUnit.SECONDS);
     }
 
     // ----------------------------------------------------------------
@@ -176,7 +170,21 @@ public class TrafficMeasurementService implements IFloodlightModule, ITrafficMea
 
             if (enabled) {
                 addAllMeasurementFlows();
+
+                // Start measurement
+                collectionFuture = threadPoolService.getScheduledExecutor().scheduleWithFixedDelay(() -> {
+                    long startTime = System.currentTimeMillis();
+                    collectAllMeasurements();
+                    deleteAllMeasurementFlows();
+                    addAllMeasurementFlows();
+                    if (this.enabled) {
+                        dispatchListeners();
+                    }
+                    LOG.info("Traffic update took {} ms", System.currentTimeMillis() - startTime);
+                }, MEASUREMENT_INTERVAL, MEASUREMENT_INTERVAL, TimeUnit.SECONDS);
             } else {
+                // stop updates
+                collectionFuture.cancel(false); // TODO does this work?
                 deleteAllMeasurementFlows();
             }
         }
@@ -210,7 +218,10 @@ public class TrafficMeasurementService implements IFloodlightModule, ITrafficMea
     }
 
     @Override
-    public PrefixTrie<Long> getMeasurement(DatapathId dpid) {
+    public PrefixTrie<Long> getMeasurement(DatapathId dpid) throws IllegalStateException {
+        if (!enabled) {
+            throw new IllegalStateException("Traffic measurement service disabled. No measurements available");
+        }
         return measurements.get(dpid);
     }
 

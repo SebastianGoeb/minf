@@ -165,7 +165,7 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
     // ----------------------------------------------------------------
     @Override
     public void newMeasurement() {
-        if (vip != null) {
+        if (vip != null && strategy == Strategy.greedy) {
             // Update flows
             buildFlows();
 
@@ -195,6 +195,15 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
     @Override
     public void setStrategy(Strategy strategy) {
         this.strategy = strategy;
+
+        switch (strategy) {
+            case greedy:
+                trafficMeasurementService.setEnabled(true);
+                break;
+            default:
+                trafficMeasurementService.setEnabled(false);
+                break;
+        }
 
         if (vip != null) {
             // Update flows
