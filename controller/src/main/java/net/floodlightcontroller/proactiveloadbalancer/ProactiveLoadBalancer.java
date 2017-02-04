@@ -19,6 +19,7 @@ import java.text.MessageFormat;
 import java.util.*;
 
 import static java.util.stream.Collectors.toSet;
+import static net.floodlightcontroller.proactiveloadbalancer.Strategy.greedy;
 import static net.floodlightcontroller.proactiveloadbalancer.Strategy.uniform;
 
 public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListener, IOFSwitchListener,
@@ -100,7 +101,6 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
         moduleDependencies.add(IFloodlightProviderService.class);
         moduleDependencies.add(IOFSwitchService.class);
         moduleDependencies.add(ITrafficMeasurementService.class);
-        // moduleDependencies.add(IThreadPoolService.class);
         moduleDependencies.add(IRestApiService.class);
         return moduleDependencies;
     }
@@ -127,38 +127,26 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
     // - IOFSwitchListener methods
     // ----------------------------------------------------------------
     @Override
-    public void switchAdded(DatapathId switchId) {
-    }
+    public void switchAdded(DatapathId dpid) {}
 
     @Override
-    public void switchRemoved(DatapathId switchId) {
-    }
+    public void switchRemoved(DatapathId dpid) {}
 
     @Override
     public void switchActivated(DatapathId dpid) {
-        // Install flows
-        LOG.info("Installing flows on switch {}", dpid);
-        if (vip != null && flows.containsKey(dpid)) {
-            IOFSwitch ofSwitch = switchManager.getActiveSwitch(dpid);
-            OFFactory factory = ofSwitch.getOFFactory();
-            List<OFFlowMod> flowMods = MessageBuilder.addLoadBalancingFlows(dpid, factory, vip, flows.get(dpid));
-            for (OFFlowMod flowMod : flowMods) {
-                ofSwitch.write(flowMod);
-            }
+        if (flows.containsKey(dpid) && vip != null) {
+            setupSwitch(dpid);
         }
     }
 
     @Override
-    public void switchPortChanged(DatapathId switchId, OFPortDesc port, PortChangeType type) {
-    }
+    public void switchPortChanged(DatapathId dpid, OFPortDesc port, PortChangeType type) {}
 
     @Override
-    public void switchChanged(DatapathId switchId) {
-    }
+    public void switchChanged(DatapathId dpid) {}
 
     @Override
-    public void switchDeactivated(DatapathId switchId) {
-    }
+    public void switchDeactivated(DatapathId dpid) {}
 
     // ----------------------------------------------------------------
     // - IMeasurementListener methods
@@ -170,8 +158,8 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
             buildFlows();
 
             // Update switches
-            deleteFlows();
-            addFlows();
+            deleteAllLoadBalancingFlows();
+            addAllLoadBalancingFlows();
         }
     }
 
@@ -180,54 +168,101 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
     // ----------------------------------------------------------------
     @Override
     public void setVip(IPv4Address vip) {
-        this.vip = vip;
+        if (!Objects.equals(this.vip, vip)) {
+            this.vip = vip;
 
-        if (vip != null) {
-            // Update flows
-            buildFlows();
+            // Configure traffic measurement service
+            trafficMeasurementService.setEnabled(strategy == greedy && vip != null);
 
-            // Update switches
-            deleteFlows();
-            addFlows();
+            if (vip != null) {
+                // Update flows
+                buildFlows();
+
+                // (Re)setup switches
+                for (Bridge bridge : topology.getBridges()) {
+                    DatapathId dpid = bridge.getDpid();
+                    if (switchManager.getActiveSwitch(dpid) != null) {
+                        setupSwitch(dpid);
+                    }
+                }
+            } else {
+                // TODO tear down switches
+            }
         }
     }
 
     @Override
     public void setStrategy(Strategy strategy) {
-        this.strategy = strategy;
+        // Preconditions
+        Objects.requireNonNull(strategy);
 
-        switch (strategy) {
-            case greedy:
-                trafficMeasurementService.setEnabled(true);
-                break;
-            default:
-                trafficMeasurementService.setEnabled(false);
-                break;
-        }
+        if (!Objects.equals(this.strategy, strategy)) {
+            this.strategy = strategy;
 
-        if (vip != null) {
-            // Update flows
-            buildFlows();
+            // Configure traffic measurement service
+            trafficMeasurementService.setEnabled(strategy == greedy && vip != null);
 
-            // Update switches
-            deleteFlows();
-            addFlows();
+            if (vip != null) {
+                // Update flows
+                buildFlows();
+
+                // (Re)setup switches
+                for (Bridge bridge : topology.getBridges()) {
+                    DatapathId dpid = bridge.getDpid();
+                    if (switchManager.getActiveSwitch(dpid) != null) {
+                        setupSwitch(dpid);
+                    }
+                }
+            } else {
+                // TODO tear down switches
+            }
         }
     }
 
     @Override
     public void setTopology(Topology topology) {
-        this.topology = topology;
-        Set<DatapathId> dpids = topology.getBridges().stream().map(bridge -> bridge.getDpid()).collect(toSet());
-        trafficMeasurementService.setDpids(dpids);
+        // Preconditions
+        Objects.requireNonNull(strategy);
 
-        if (vip != null) {
-            // Update flows
-            buildFlows();
+        if (!Objects.equals(this.topology, topology)) {
+            this.topology = topology;
 
-            // Update switches
-            deleteFlows();
-            addFlows();
+            // Configure traffic measurement service
+            Set<DatapathId> dpids = topology.getBridges().stream().map(bridge -> bridge.getDpid()).collect(toSet());
+            trafficMeasurementService.setDpids(dpids);
+
+            if (vip != null) {
+                // Update flows
+                buildFlows();
+
+                // (Re)setup switches
+                for (Bridge bridge : topology.getBridges()) {
+                    DatapathId dpid = bridge.getDpid();
+                    if (switchManager.getActiveSwitch(dpid) != null) {
+                        setupSwitch(dpid);
+                    }
+                }
+            } else {
+                // TODO tear down switches
+            }
+        }
+    }
+
+    private void setupSwitch(DatapathId dpid) {
+        LOG.info("Setting up switch {}", dpid);
+        IOFSwitch ofSwitch = switchManager.getActiveSwitch(dpid);
+        OFFactory factory = ofSwitch.getOFFactory();
+
+        // Add stub flows
+        List<OFFlowMod> flowMods = MessageBuilder.addStubFlows(dpid, factory, vip);
+        for (OFFlowMod flowMod : flowMods) {
+            ofSwitch.write(flowMod);
+        }
+
+        // Add load balancing flows
+        flowMods = MessageBuilder.addLoadBalancingFlows(dpid, factory, vip, flows.get(dpid));
+        for (OFFlowMod flowMod : flowMods) {
+            ofSwitch.write(flowMod);
         }
     }
 
@@ -251,13 +286,14 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
         }
     }
 
-    private void deleteFlows() {
+    // Stub table
+    private void addAllStubFlows() {
         for (Bridge bridge : topology.getBridges()) {
             DatapathId dpid = bridge.getDpid();
             IOFSwitch ofSwitch = switchManager.getActiveSwitch(dpid);
             if (ofSwitch != null) {
                 OFFactory factory = ofSwitch.getOFFactory();
-                List<OFFlowMod> flowMods = MessageBuilder.deleteLoadBalancingFlows(dpid, factory, vip);
+                List<OFFlowMod> flowMods = MessageBuilder.addStubFlows(dpid, factory, vip);
                 for (OFFlowMod flowMod : flowMods) {
                     ofSwitch.write(flowMod);
                 }
@@ -265,7 +301,22 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
         }
     }
 
-    private void addFlows() {
+    // LB table
+    private void deleteAllLoadBalancingFlows() {
+        for (Bridge bridge : topology.getBridges()) {
+            DatapathId dpid = bridge.getDpid();
+            IOFSwitch ofSwitch = switchManager.getActiveSwitch(dpid);
+            if (ofSwitch != null) {
+                OFFactory factory = ofSwitch.getOFFactory();
+                List<OFFlowMod> flowMods = MessageBuilder.deleteLoadBalancingFlows(dpid, factory);
+                for (OFFlowMod flowMod : flowMods) {
+                    ofSwitch.write(flowMod);
+                }
+            }
+        }
+    }
+
+    private void addAllLoadBalancingFlows() {
         for (Bridge bridge : topology.getBridges()) {
             DatapathId dpid = bridge.getDpid();
             IOFSwitch ofSwitch = switchManager.getActiveSwitch(dpid);

@@ -145,8 +145,8 @@ public class TrafficMeasurementService implements IFloodlightModule, ITrafficMea
 
     @Override
     public void switchActivated(DatapathId dpid) {
-        LOG.info("Adding measurement flows to switch {}", dpid);
         if (dpids.contains(dpid)) {
+            LOG.info("Adding measurement flows to switch {}", dpid);
             addMeasurementFlows(dpid);
         }
     }

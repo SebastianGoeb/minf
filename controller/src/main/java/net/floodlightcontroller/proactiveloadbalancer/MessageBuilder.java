@@ -96,8 +96,72 @@ class MessageBuilder {
         return TableId.of(getBaseTableId(dpid) + FORWARDING_TABLE_ID_OFFSET);
     }
 
-    static List<OFFlowMod> deleteLoadBalancingFlows(DatapathId dpid, OFFactory factory, IPv4Address vip) {
-        throw new UnsupportedOperationException();
+    // Stub
+    static List<OFFlowMod> addStubFlows(DatapathId dpid, OFFactory factory, IPv4Address vip) {
+        // Preconditions
+        Objects.requireNonNull(dpid);
+        Objects.requireNonNull(factory);
+        Objects.requireNonNull(vip);
+
+        // OpenFlow
+        OFInstructions instructions = factory.instructions();
+
+        // Table ids
+        TableId stubTableId = TableId.of(0);
+        TableId ingressMeasurementTableId = getIngressMeasurementTableId(dpid);
+        TableId loadBalancingTableId = getLoadBalancingTableId(dpid);
+
+        // Add stub flows
+        List<OFFlowMod> flowMods = new LinkedList<>();
+
+        // Ingress
+        Match ingressMatch = factory
+                .buildMatch()
+                .setExact(MatchField.ETH_TYPE, EthType.IPv4)
+                .setExact(MatchField.IPV4_DST, vip)
+                .build();
+
+        flowMods.add(factory
+                .buildFlowAdd()
+                .setTableId(stubTableId)
+                .setMatch(ingressMatch)
+                .setInstructions(Collections.singletonList(instructions.gotoTable(ingressMeasurementTableId)))
+                .build());
+
+        // Egress
+        Match egressMatch = factory
+                .buildMatch()
+                .setExact(MatchField.ETH_TYPE, EthType.IPv4)
+                .build();
+
+        flowMods.add(factory
+                .buildFlowAdd()
+                .setTableId(stubTableId)
+                .setMatch(egressMatch)
+                .setInstructions(Collections.singletonList(instructions.gotoTable(loadBalancingTableId)))
+                .build());
+
+        return flowMods;
+    }
+
+    // Load Balancing
+    static List<OFFlowMod> deleteLoadBalancingFlows(DatapathId dpid, OFFactory factory) {
+        // Preconditions
+        Objects.requireNonNull(dpid);
+        Objects.requireNonNull(factory);
+
+        // Table ids
+        TableId loadBalancingTableId = getLoadBalancingTableId(dpid);
+
+        // Delete ingress and egress load balancing flows
+        List<OFFlowMod> flowMods = new LinkedList<>();
+
+        flowMods.add(factory
+                .buildFlowDelete()
+                .setTableId(loadBalancingTableId)
+                .build());
+
+        return flowMods;
     }
 
     static List<OFFlowMod> addLoadBalancingFlows(DatapathId dpid, OFFactory factory, IPv4Address vip, Set<Flow> flows) {
@@ -115,6 +179,7 @@ class MessageBuilder {
         // Table ids
         TableId loadBalancingTableId = getLoadBalancingTableId(dpid);
         TableId egressMeasurementTableId = getEgressMeasurementTableId(dpid);
+        TableId forwardingTableId = getForwardingTableId(dpid);
 
         // Add ingress and egress load balancing flows
         List<OFFlowMod> flowMods = new LinkedList<>();
@@ -137,7 +202,7 @@ class MessageBuilder {
 
             List<OFInstruction> ingressInstructionList = Arrays.asList(
                     instructions.applyActions(ingressActionList),
-                    instructions.gotoTable(egressMeasurementTableId));
+                    instructions.gotoTable(forwardingTableId));
 
             flowMods.add(factory
                     .buildFlowAdd()
@@ -157,7 +222,7 @@ class MessageBuilder {
 
             List<OFAction> egressActionList = Arrays.asList(
                     actions.setField(oxms.ethSrc(SWITCH_MAC)),
-                    actions.setField(oxms.ethDst(DRIVER_MACS.get(dip))),
+                    actions.setField(oxms.ethDst(DRIVER_MACS.values().iterator().next())), // TODO runtime
                     actions.setField(oxms.ipv4Src(vip)));
 
             List<OFInstruction> egressInstructionList = Arrays.asList(
@@ -179,6 +244,7 @@ class MessageBuilder {
         return flowMods;
     }
 
+    // Traffic Measurement
     static List<OFFlowMod> deleteMeasurementFlows(DatapathId dpid, OFFactory factory) {
         // Preconditions
         Objects.requireNonNull(dpid);
