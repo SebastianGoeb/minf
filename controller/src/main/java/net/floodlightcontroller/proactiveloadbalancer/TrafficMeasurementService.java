@@ -47,6 +47,7 @@ public class TrafficMeasurementService implements IFloodlightModule, ITrafficMea
 
     // Config
     private boolean enabled = false;
+    private Set<DatapathId> dpids;
 
     // Measurements
     private Map<DatapathId, PrefixTrie<Long>> measurements = new HashMap<>();
@@ -132,9 +133,9 @@ public class TrafficMeasurementService implements IFloodlightModule, ITrafficMea
 
         // Start measurement
         threadPoolService.getScheduledExecutor().scheduleWithFixedDelay(() -> {
-            collectMeasurements();
-            deleteMeasurementFlows();
-            addMeasurementFlows();
+            collectAllMeasurements();
+            deleteAllMeasurementFlows();
+            addAllMeasurementFlows();
             dispatchListeners();
         }, MEASUREMENT_INTERVAL, MEASUREMENT_INTERVAL, TimeUnit.SECONDS);
     }
@@ -143,37 +144,27 @@ public class TrafficMeasurementService implements IFloodlightModule, ITrafficMea
     // - IOFSwitchListener methods
     // ----------------------------------------------------------------
     @Override
-    public void switchAdded(DatapathId dpid) {
-    }
+    public void switchAdded(DatapathId dpid) {}
 
     @Override
-    public void switchRemoved(DatapathId dpid) {
-    }
+    public void switchRemoved(DatapathId dpid) {}
 
     @Override
     public void switchActivated(DatapathId dpid) {
-        // TODO merge with addMeasurementFlows?
-        if (measurements.containsKey(dpid)) {
-            IOFSwitch ofSwitch = switchManager.getActiveSwitch(dpid);
-            OFFactory factory = ofSwitch.getOFFactory();
-            PrefixTrie<Long> measurement = measurements.get(dpid);
-            for (OFFlowMod flowMod : MessageBuilder.addMeasurementFlows(dpid, factory, measurement)) {
-                ofSwitch.write(flowMod);
-            }
+        LOG.info("Adding measurement flows to switch {}", dpid);
+        if (dpids.contains(dpid)) {
+            addMeasurementFlows(dpid);
         }
     }
 
     @Override
-    public void switchPortChanged(DatapathId dpid, OFPortDesc port, PortChangeType type) {
-    }
+    public void switchPortChanged(DatapathId dpid, OFPortDesc port, PortChangeType type) {}
 
     @Override
-    public void switchChanged(DatapathId dpid) {
-    }
+    public void switchChanged(DatapathId dpid) {}
 
     @Override
-    public void switchDeactivated(DatapathId dpid) {
-    }
+    public void switchDeactivated(DatapathId dpid) {}
 
     // ----------------------------------------------------------------
     // - ITrafficMeasurementService methods
@@ -184,11 +175,9 @@ public class TrafficMeasurementService implements IFloodlightModule, ITrafficMea
             this.enabled = enabled;
 
             if (enabled) {
-                // install flows
-                addMeasurementFlows();
+                addAllMeasurementFlows();
             } else {
-                // uninstall flows
-                deleteMeasurementFlows();
+                deleteAllMeasurementFlows();
             }
         }
     }
@@ -196,9 +185,12 @@ public class TrafficMeasurementService implements IFloodlightModule, ITrafficMea
     @Override
     public void setDpids(Set<DatapathId> dpids) {
         if (enabled) {
-            deleteMeasurementFlows();
+            deleteAllMeasurementFlows();
         }
-        deleteFallbackFlows();
+        deleteAllFallbackFlows();
+
+        // Update dpids
+        this.dpids = dpids;
 
         // Reset measurements
         measurements.clear();
@@ -207,9 +199,9 @@ public class TrafficMeasurementService implements IFloodlightModule, ITrafficMea
         }
 
         if (enabled) {
-            addMeasurementFlows();
+            addAllMeasurementFlows();
         }
-        addFallbackFlows();
+        addAllFallbackFlows();
     }
 
     @Override
@@ -225,9 +217,9 @@ public class TrafficMeasurementService implements IFloodlightModule, ITrafficMea
     // ----------------------------------------------------------------
     // - helper methods
     // ----------------------------------------------------------------
-    private void collectMeasurements() {
+    private void collectAllMeasurements() {
         LOG.info("Collecting traffic measurements");
-        for (DatapathId dpid : measurements.keySet()) {
+        for (DatapathId dpid : dpids) {
             IOFSwitch ofSwitch = switchManager.getActiveSwitch(dpid);
             if (ofSwitch != null) {
                 // Build stats requests
@@ -280,9 +272,9 @@ public class TrafficMeasurementService implements IFloodlightModule, ITrafficMea
         }
     }
 
-    private void deleteMeasurementFlows() {
+    private void deleteAllMeasurementFlows() {
         LOG.info("Deleting measurement flows");
-        for (DatapathId dpid : measurements.keySet()) {
+        for (DatapathId dpid : dpids) {
             IOFSwitch ofSwitch = switchManager.getActiveSwitch(dpid);
             if (ofSwitch != null) {
                 OFFactory factory = ofSwitch.getOFFactory();
@@ -293,26 +285,30 @@ public class TrafficMeasurementService implements IFloodlightModule, ITrafficMea
         }
     }
 
-    private void addMeasurementFlows() {
+    private void addAllMeasurementFlows() {
         LOG.info("Adding measurement flows");
-        for (DatapathId dpid : measurements.keySet()) {
-            IOFSwitch ofSwitch = switchManager.getActiveSwitch(dpid);
-            if (ofSwitch != null) {
-                // Adjust copy of measurement tree for next interval
-                PrefixTrie<Long> measurementCopy = adjustedMeasurement(PrefixTrie.copy(measurements.get(dpid)));
+        for (DatapathId dpid : dpids) {
+            addMeasurementFlows(dpid);
+        }
+    }
 
-                // Add measurement flows
-                OFFactory factory = ofSwitch.getOFFactory();
-                for (OFFlowMod flowMod : MessageBuilder.addMeasurementFlows(dpid, factory, measurementCopy)) {
-                    ofSwitch.write(flowMod);
-                }
+    private void addMeasurementFlows(DatapathId dpid) {
+        IOFSwitch ofSwitch = switchManager.getActiveSwitch(dpid);
+        if (ofSwitch != null) {
+            // Adjust copy of measurement tree for next interval
+            PrefixTrie<Long> measurementCopy = adjustedMeasurement(PrefixTrie.copy(measurements.get(dpid)));
+
+            // Add measurement flows
+            OFFactory factory = ofSwitch.getOFFactory();
+            for (OFFlowMod flowMod : MessageBuilder.addMeasurementFlows(dpid, factory, measurementCopy)) {
+                ofSwitch.write(flowMod);
             }
         }
     }
 
-    private void deleteFallbackFlows() {
+    private void deleteAllFallbackFlows() {
         LOG.info("Deleting fallback flows");
-        for (DatapathId dpid : measurements.keySet()) {
+        for (DatapathId dpid : dpids) {
             IOFSwitch ofSwitch = switchManager.getActiveSwitch(dpid);
             if (ofSwitch != null) {
                 OFFactory factory = ofSwitch.getOFFactory();
@@ -323,9 +319,9 @@ public class TrafficMeasurementService implements IFloodlightModule, ITrafficMea
         }
     }
 
-    private void addFallbackFlows() {
+    private void addAllFallbackFlows() {
         LOG.info("Adding fallback flows");
-        for (DatapathId dpid : measurements.keySet()) {
+        for (DatapathId dpid : dpids) {
             IOFSwitch ofSwitch = switchManager.getActiveSwitch(dpid);
             if (ofSwitch != null) {
                 OFFactory factory = ofSwitch.getOFFactory();
