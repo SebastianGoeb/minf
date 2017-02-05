@@ -5,7 +5,7 @@ import org.projectfloodlight.openflow.types.IPv4Address;
 
 public interface IProactiveLoadBalancerService extends IFloodlightService {
     // Config
-    void setStrategy(Strategy strategy);
-    void setTopology(Topology topology);
     void setVip(IPv4Address vip);
+    void setTopology(Topology topology);
+    void setStrategy(Strategy strategy);
 }

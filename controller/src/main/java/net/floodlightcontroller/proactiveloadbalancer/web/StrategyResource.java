@@ -18,18 +18,20 @@ public class StrategyResource extends ServerResource {
     @Put("json")
     public Response<?> set(String json) throws IOException {
         IProactiveLoadBalancerService service = ((IProactiveLoadBalancerService) getContext()
-            .getAttributes()
-            .get(IProactiveLoadBalancerService.class.getCanonicalName()));
+                .getAttributes()
+                .get(IProactiveLoadBalancerService.class.getCanonicalName()));
 
         // Parse JSON
         String strategyString = new ObjectMapper().readValue(json, String.class);
-        Strategy strategy;
-        try {
-            strategy = Strategy.valueOf(strategyString);
-        } catch (IllegalArgumentException e) {
-            setStatus(Status.CLIENT_ERROR_BAD_REQUEST);
-            return new Response<Void>()
-                .addError(MessageFormat.format("Invalid strategy: {0}", strategyString));
+        Strategy strategy = null;
+        if (strategyString != null) {
+            try {
+                strategy = Strategy.valueOf(strategyString);
+            } catch (IllegalArgumentException e) {
+                setStatus(Status.CLIENT_ERROR_BAD_REQUEST);
+                return new Response<Void>()
+                        .addError(MessageFormat.format("Invalid strategy: {0}", strategyString));
+            }
         }
 
         // Apply configuration
@@ -38,6 +40,6 @@ public class StrategyResource extends ServerResource {
         // Construct response
         setStatus(Status.SUCCESS_CREATED);
         return new Response<Strategy>()
-            .setData(strategy);
+                .setData(strategy);
     }
 }

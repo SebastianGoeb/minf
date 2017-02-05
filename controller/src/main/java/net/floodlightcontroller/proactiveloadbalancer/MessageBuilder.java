@@ -144,6 +144,20 @@ class MessageBuilder {
         return flowMods;
     }
 
+    static List<OFFlowMod> deleteStubFlows(DatapathId dpid, OFFactory factory) {
+        // Preconditions
+        Objects.requireNonNull(dpid);
+        Objects.requireNonNull(factory);
+
+        // Table ids
+        TableId stubTableId = TableId.of(0);
+
+        return Collections.singletonList(factory
+                .buildFlowDelete()
+                .setTableId(stubTableId)
+                .build());
+    }
+
     // Load Balancing
     static List<OFFlowMod> deleteLoadBalancingFlows(DatapathId dpid, OFFactory factory) {
         // Preconditions

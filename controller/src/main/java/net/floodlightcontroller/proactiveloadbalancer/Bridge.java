@@ -51,11 +51,13 @@ class Bridge {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         Bridge bridge = (Bridge) o;
-        return Objects.equals(dpid, bridge.dpid);
+        return Objects.equals(dpid, bridge.dpid) &&
+                Objects.equals(upstreamBridges, bridge.upstreamBridges) &&
+                Objects.equals(upstreamHosts, bridge.upstreamHosts);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(dpid);
+        return Objects.hash(dpid, upstreamBridges, upstreamHosts);
     }
 }

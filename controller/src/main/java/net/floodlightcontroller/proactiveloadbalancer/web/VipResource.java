@@ -23,13 +23,15 @@ public class VipResource extends ServerResource {
 
         // Parse JSON
         String vipString = new ObjectMapper().readValue(json, String.class);
-        IPv4Address vip;
-        try {
-            vip = IPv4Address.of(vipString);
-        } catch (IllegalArgumentException e) {
-            setStatus(Status.CLIENT_ERROR_BAD_REQUEST);
-            return new Response<Void>()
-                    .addError(MessageFormat.format("Invalid vip: {0}", vipString));
+        IPv4Address vip = null;
+        if (vipString != null) {
+            try {
+                vip = IPv4Address.of(vipString);
+            } catch (IllegalArgumentException e) {
+                setStatus(Status.CLIENT_ERROR_BAD_REQUEST);
+                return new Response<Void>()
+                        .addError(MessageFormat.format("Invalid vip: {0}", vipString));
+            }
         }
 
         // Apply configuration
@@ -38,6 +40,6 @@ public class VipResource extends ServerResource {
         // Construct response
         setStatus(Status.SUCCESS_CREATED);
         return new Response<String>()
-            .setData(vip.toString());
+            .setData(vip != null ? vip.toString() : null);
     }
 }
