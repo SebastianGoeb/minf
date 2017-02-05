@@ -80,7 +80,7 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
     private static Map<IPv4AddressWithMask, Long> getByteCounts(IOFSwitch ofSwitch, OFFlowStatsRequest statsRequest) {
         Objects.requireNonNull(ofSwitch);
 
-        LOG.warn("Getting byte counts from switch {} table {}", ofSwitch.getId(), statsRequest.getTableId());
+        LOG.info("Getting byte counts from switch {} table {}", ofSwitch.getId(), statsRequest.getTableId());
         List<OFFlowStatsReply> statsReplies;
         try {
             statsReplies = ofSwitch

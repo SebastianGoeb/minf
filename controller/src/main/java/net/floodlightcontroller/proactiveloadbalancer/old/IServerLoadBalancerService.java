@@ -1,15 +1,12 @@
 package net.floodlightcontroller.proactiveloadbalancer.old;
 
 import net.floodlightcontroller.core.module.IFloodlightService;
-import net.floodlightcontroller.proactiveloadbalancer.AddressPool;
 import net.floodlightcontroller.proactiveloadbalancer.old.ServerLoadBalancer.Stats;
 import net.floodlightcontroller.proactiveloadbalancer.old.network.LoadBalanceTarget;
 import net.floodlightcontroller.proactiveloadbalancer.old.network.Server;
 import net.floodlightcontroller.proactiveloadbalancer.old.network.Switch;
 
 import java.util.List;
-
-import org.projectfloodlight.openflow.types.IPv4Address;
 
 public interface IServerLoadBalancerService extends IFloodlightService {
     void setMaxPrefixLength();
@@ -34,9 +31,4 @@ public interface IServerLoadBalancerService extends IFloodlightService {
 
     // Stats methods
     Stats getStats(Switch sw);
-    
-    // ---- NEW SHIT ----
-    void addMapping(IPv4Address vip, AddressPool mapping);
-    boolean hasMappingFor(IPv4Address vip);
-    AddressPool deleteMappingFor(IPv4Address vip);
 }

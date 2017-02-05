@@ -53,7 +53,6 @@ import net.floodlightcontroller.core.module.IFloodlightService;
 import net.floodlightcontroller.packet.Ethernet;
 import net.floodlightcontroller.packet.IPv4;
 import net.floodlightcontroller.packet.TCP;
-import net.floodlightcontroller.proactiveloadbalancer.AddressPool;
 import net.floodlightcontroller.proactiveloadbalancer.old.assignment.Assignment;
 import net.floodlightcontroller.proactiveloadbalancer.old.assignment.AssignmentTree;
 import net.floodlightcontroller.proactiveloadbalancer.old.assignment.AssignmentTree.Changes;
@@ -743,27 +742,5 @@ public class ServerLoadBalancer implements IFloodlightModule, IOFMessageListener
 	public void switchDeactivated(DatapathId switchId) {
 		// TODO Auto-generated method stub
 		
-	}
-	
-	// ---- NEW SHIT ----
-	private Map<IPv4Address, AddressPool> mappings = new HashMap<>(); // TODO initialize somewhere else
-	
-	@Override
-	public void addMapping(IPv4Address vip, AddressPool mapping) {
-		if (mappings.containsKey(vip)) {
-			// TODO do cleanup?
-		}
-		mappings.put(vip, mapping);
-		// TODO update load balancing rules
-	}
-	
-	@Override
-	public boolean hasMappingFor(IPv4Address vip) {
-		return mappings.containsKey(vip);
-	}
-	
-	@Override
-	public AddressPool deleteMappingFor(IPv4Address vip) {
-		return mappings.remove(vip);
 	}
 }
