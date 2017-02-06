@@ -17,18 +17,12 @@ import java.util.*;
 class MessageBuilder {
 
     // Constants
-    private static final U64 MEASUREMENT_COOKIE = U64.of(100);
-    // TODO merge with priorities?
-    private static final U64 LOAD_BALANCING_INGRESS_COOKIE = U64.of(100);
-    // TODO merge with priorities?
-    private static final U64 LOAD_BALANCING_EGRESS_COOKIE = U64.of(50);
+    private static final U64 INGRESS_COOKIE = U64.of(200);
+    private static final U64 EGRESS_COOKIE = U64.of(100);
     private static final U64 FALLBACK_COOKIE = U64.of(0);
 
-    private static final int MEASUREMENT_PRIORITY = 100;
-    // TODO merge with measurement priority?
-    private static final int LOAD_BALANCING_INGRESS_PRIORITY = 100;
-    // TODO merge with measurement priority?
-    private static final int LOAD_BALANCING_EGRESS_PRIORITY = 50;
+    private static final int INGRESS_PRIORITY = 200;
+    private static final int EGRESS_PRIORITY = 100;
     private static final int FALLBACK_PRIORITY = 0;
 
     private static final int INGRESS_MEASUREMENT_TABLE_ID_OFFSET = 1;
@@ -38,7 +32,7 @@ class MessageBuilder {
     private static final short NUM_TABLES = 5;
 
     // TODO get at runtime?
-    private static final MacAddress SWITCH_MAC = MacAddress.of("00:00:02:02:02:02");
+    private static final MacAddress SWITCH_MAC = MacAddress.of("00:00:0a:05:01:0c");
     // TODO get at runtime?
     private static final Map<IPv4Address, MacAddress> SERVER_MACS = new HashMap<>();
     // TODO get at runtime?
@@ -46,6 +40,10 @@ class MessageBuilder {
 
 
     static {
+        SERVER_MACS.put(IPv4Address.of("10.0.0.2"), MacAddress.of("00:00:00:00:00:02"));
+        SERVER_MACS.put(IPv4Address.of("10.0.0.3"), MacAddress.of("00:00:00:00:00:03"));
+        SERVER_MACS.put(IPv4Address.of("10.0.0.4"), MacAddress.of("00:00:00:00:00:04"));
+
         SERVER_MACS.put(IPv4Address.of("10.1.1.2"), MacAddress.of("9a:b0:ad:56:d9:34"));
         SERVER_MACS.put(IPv4Address.of("10.1.1.3"), MacAddress.of("ee:3d:17:22:dc:2d"));
         SERVER_MACS.put(IPv4Address.of("10.1.2.2"), MacAddress.of("d6:a7:d3:02:9c:bd"));
@@ -62,6 +60,8 @@ class MessageBuilder {
         SERVER_MACS.put(IPv4Address.of("10.4.1.3"), MacAddress.of("3e:ff:e6:a4:1e:1f"));
         SERVER_MACS.put(IPv4Address.of("10.4.2.2"), MacAddress.of("f6:2c:99:73:fc:d6"));
         SERVER_MACS.put(IPv4Address.of("10.4.2.3"), MacAddress.of("4e:b3:0c:da:61:23"));
+
+        DRIVER_MACS.put(IPv4Address.of("10.0.0.1"), MacAddress.of("00:00:00:00:00:01"));
 
         DRIVER_MACS.put(IPv4Address.of("10.5.1.2"), MacAddress.of("5c:b9:01:7b:45:50"));
         DRIVER_MACS.put(IPv4Address.of("10.5.1.3"), MacAddress.of("50:65:f3:e6:cf:d4"));
@@ -124,6 +124,7 @@ class MessageBuilder {
         flowMods.add(factory
                 .buildFlowAdd()
                 .setTableId(stubTableId)
+                .setPriority(INGRESS_PRIORITY + IPv4Address.FULL_MASK.asCidrMaskLength())
                 .setMatch(ingressMatch)
                 .setInstructions(Collections.singletonList(instructions.gotoTable(ingressMeasurementTableId)))
                 .build());
@@ -137,6 +138,7 @@ class MessageBuilder {
         flowMods.add(factory
                 .buildFlowAdd()
                 .setTableId(stubTableId)
+                .setPriority(EGRESS_PRIORITY + IPv4Address.FULL_MASK.asCidrMaskLength())
                 .setMatch(egressMatch)
                 .setInstructions(Collections.singletonList(instructions.gotoTable(loadBalancingTableId)))
                 .build());
@@ -159,25 +161,6 @@ class MessageBuilder {
     }
 
     // Load Balancing
-    static List<OFFlowMod> deleteLoadBalancingFlows(DatapathId dpid, OFFactory factory) {
-        // Preconditions
-        Objects.requireNonNull(dpid);
-        Objects.requireNonNull(factory);
-
-        // Table ids
-        TableId loadBalancingTableId = getLoadBalancingTableId(dpid);
-
-        // Delete ingress and egress load balancing flows
-        List<OFFlowMod> flowMods = new LinkedList<>();
-
-        flowMods.add(factory
-                .buildFlowDelete()
-                .setTableId(loadBalancingTableId)
-                .build());
-
-        return flowMods;
-    }
-
     static List<OFFlowMod> addLoadBalancingFlows(DatapathId dpid,
             OFFactory factory,
             IPv4Address vip,
@@ -224,8 +207,7 @@ class MessageBuilder {
             flowMods.add(factory
                     .buildFlowAdd()
                     .setTableId(loadBalancingTableId)
-                    .setCookie(LOAD_BALANCING_INGRESS_COOKIE)
-                    .setPriority(LOAD_BALANCING_INGRESS_PRIORITY)
+                    .setPriority(INGRESS_PRIORITY + prefix.getMask().asCidrMaskLength())
                     .setMatch(ingressMatch)
                     .setInstructions(ingressInstructionList)
                     .build());
@@ -249,8 +231,7 @@ class MessageBuilder {
             flowMods.add(factory
                     .buildFlowAdd()
                     .setTableId(loadBalancingTableId)
-                    .setCookie(LOAD_BALANCING_EGRESS_COOKIE)
-                    .setPriority(LOAD_BALANCING_EGRESS_PRIORITY)
+                    .setPriority(EGRESS_PRIORITY + prefix.getMask().asCidrMaskLength())
                     .setMatch(egressMatch)
                     .setInstructions(egressInstructionList)
                     .build());
@@ -261,32 +242,26 @@ class MessageBuilder {
         return flowMods;
     }
 
-    // Traffic Measurement
-    static List<OFFlowMod> deleteMeasurementFlows(DatapathId dpid, OFFactory factory) {
+    static List<OFFlowMod> deleteLoadBalancingFlows(DatapathId dpid, OFFactory factory) {
         // Preconditions
         Objects.requireNonNull(dpid);
         Objects.requireNonNull(factory);
 
-        // Delete ingress and egress measurement flows
+        // Table ids
+        TableId loadBalancingTableId = getLoadBalancingTableId(dpid);
+
+        // Delete ingress and egress load balancing flows
         List<OFFlowMod> flowMods = new LinkedList<>();
 
-        // Ingress
         flowMods.add(factory
                 .buildFlowDelete()
-                .setTableId(getIngressMeasurementTableId(dpid))
-                .setCookie(MEASUREMENT_COOKIE)
-                .build());
-
-        // Egress
-        flowMods.add(factory
-                .buildFlowDelete()
-                .setTableId(getEgressMeasurementTableId(dpid))
-                .setCookie(MEASUREMENT_COOKIE)
+                .setTableId(loadBalancingTableId)
                 .build());
 
         return flowMods;
     }
 
+    // Traffic Measurement
     static List<OFFlowMod> addMeasurementFlows(DatapathId dpid, OFFactory factory, PrefixTrie<Long> measurement) {
         // Preconditions
         Objects.requireNonNull(dpid);
@@ -306,29 +281,36 @@ class MessageBuilder {
         List<OFFlowMod> flowMods = new LinkedList<>();
         measurement.traversePreOrder((node, prefix) -> {
             if (node.isLeaf()) {
-                Match match = factory
+                Match ingressMatch = factory
                         .buildMatch()
                         .setExact(MatchField.ETH_TYPE, EthType.IPv4)
-                        .setMasked(MatchField.IPV4_DST, prefix)
+                        // TODO vip?
+                        .setMasked(MatchField.IPV4_SRC, prefix)
                         .build();
 
                 // Ingress
                 flowMods.add(factory
                         .buildFlowAdd()
                         .setTableId(ingressMeasurementTableId)
-                        .setCookie(MEASUREMENT_COOKIE)
-                        .setPriority(MEASUREMENT_PRIORITY)
-                        .setMatch(match)
+                        .setCookie(INGRESS_COOKIE)
+                        .setPriority(INGRESS_PRIORITY + prefix.getMask().asCidrMaskLength())
+                        .setMatch(ingressMatch)
                         .setInstructions(Collections.singletonList(instructions.gotoTable(loadBalancingTableId)))
                         .build());
+
+                Match egressMatch = factory
+                        .buildMatch()
+                        .setExact(MatchField.ETH_TYPE, EthType.IPv4)
+                        .setMasked(MatchField.IPV4_DST, prefix)
+                        .build();
 
                 // Egress
                 flowMods.add(factory
                         .buildFlowAdd()
                         .setTableId(egressMeasurementTableId)
-                        .setCookie(MEASUREMENT_COOKIE)
-                        .setPriority(MEASUREMENT_PRIORITY)
-                        .setMatch(match)
+                        .setCookie(EGRESS_COOKIE)
+                        .setPriority(EGRESS_PRIORITY + prefix.getMask().asCidrMaskLength())
+                        .setMatch(egressMatch)
                         .setInstructions(Collections.singletonList(instructions.gotoTable(forwardingTableId)))
                         .build());
             }
@@ -337,26 +319,26 @@ class MessageBuilder {
         return flowMods;
     }
 
-    static List<OFFlowMod> deleteFallbackFlows(DatapathId dpid, OFFactory factory) {
+    static List<OFFlowMod> deleteMeasurementFlows(DatapathId dpid, OFFactory factory) {
         // Preconditions
         Objects.requireNonNull(dpid);
         Objects.requireNonNull(factory);
 
-        // Delete ingress and egress fallback flows
+        // Delete ingress and egress measurement flows
         List<OFFlowMod> flowMods = new LinkedList<>();
 
         // Ingress
         flowMods.add(factory
                 .buildFlowDelete()
                 .setTableId(getIngressMeasurementTableId(dpid))
-                .setCookie(FALLBACK_COOKIE)
+                .setCookie(INGRESS_COOKIE)
                 .build());
 
         // Egress
         flowMods.add(factory
                 .buildFlowDelete()
                 .setTableId(getEgressMeasurementTableId(dpid))
-                .setCookie(FALLBACK_COOKIE)
+                .setCookie(EGRESS_COOKIE)
                 .build());
 
         return flowMods;
@@ -398,8 +380,7 @@ class MessageBuilder {
         return flowMods;
     }
 
-    // Forwarding
-    static List<OFFlowMod> deleteForwardingFlows(DatapathId dpid, OFFactory factory) {
+    static List<OFFlowMod> deleteFallbackFlows(DatapathId dpid, OFFactory factory) {
         // Preconditions
         Objects.requireNonNull(dpid);
         Objects.requireNonNull(factory);
@@ -407,14 +388,24 @@ class MessageBuilder {
         // Delete ingress and egress fallback flows
         List<OFFlowMod> flowMods = new LinkedList<>();
 
+        // Ingress
         flowMods.add(factory
                 .buildFlowDelete()
-                .setTableId(getForwardingTableId(dpid))
+                .setTableId(getIngressMeasurementTableId(dpid))
+                .setCookie(FALLBACK_COOKIE)
+                .build());
+
+        // Egress
+        flowMods.add(factory
+                .buildFlowDelete()
+                .setTableId(getEgressMeasurementTableId(dpid))
+                .setCookie(FALLBACK_COOKIE)
                 .build());
 
         return flowMods;
     }
 
+    // Forwarding
     static List<OFFlowMod> addForwardingFlows(DatapathId dpid, OFFactory factory, List<ForwardingFlow> flows) {
         // Preconditions
         Objects.requireNonNull(dpid);
@@ -434,16 +425,37 @@ class MessageBuilder {
             List<OFAction> actionList = Collections.singletonList(actions.output(OFPort.of(flow.getPort()),
                     Integer.MAX_VALUE));
 
+            IPv4AddressWithMask prefix = flow.getPrefix();
+
+            Match match = factory.buildMatch()
+                    .setExact(MatchField.ETH_TYPE, EthType.IPv4)
+                    .setMasked(MatchField.IPV4_DST, prefix)
+                    .build();
+
             flowMods.add(factory
                     .buildFlowAdd()
-                    .setMatch(factory.buildMatch()
-                            .setExact(MatchField.ETH_TYPE, EthType.IPv4)
-                            .setMasked(MatchField.IPV4_DST, flow.getPrefix())
-                            .build())
                     .setTableId(forwardingTableId)
+                    .setPriority(EGRESS_PRIORITY + prefix.getMask().asCidrMaskLength())
+                    .setMatch(match)
                     .setInstructions(Collections.singletonList(instructions.applyActions(actionList)))
                     .build());
         }
+
+        return flowMods;
+    }
+
+    static List<OFFlowMod> deleteForwardingFlows(DatapathId dpid, OFFactory factory) {
+        // Preconditions
+        Objects.requireNonNull(dpid);
+        Objects.requireNonNull(factory);
+
+        // Delete ingress and egress fallback flows
+        List<OFFlowMod> flowMods = new LinkedList<>();
+
+        flowMods.add(factory
+                .buildFlowDelete()
+                .setTableId(getForwardingTableId(dpid))
+                .build());
 
         return flowMods;
     }
@@ -457,7 +469,7 @@ class MessageBuilder {
                 .buildFlowStatsRequest()
                 .setMatch(factory.buildMatch().build())
                 .setTableId(getIngressMeasurementTableId(dpid))
-                .setCookie(MEASUREMENT_COOKIE)
+                .setCookie(INGRESS_COOKIE)
                 .build();
     }
 
@@ -470,7 +482,7 @@ class MessageBuilder {
                 .buildFlowStatsRequest()
                 .setMatch(factory.buildMatch().build())
                 .setTableId(getEgressMeasurementTableId(dpid))
-                .setCookie(MEASUREMENT_COOKIE)
+                .setCookie(EGRESS_COOKIE)
                 .build();
     }
 }

@@ -38,7 +38,7 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
 
     // Contants
     // TODO configurable?
-    static final IPv4AddressWithMask CLIENT_RANGE = IPv4AddressWithMask.of("10.5.0.0/16");
+    static final IPv4AddressWithMask CLIENT_RANGE = IPv4AddressWithMask.of("10.0.0.0/8");
     // TODO configurable?
     private static final long MEASUREMENT_INTERVAL = 60; // 1 minute
     // TODO configurable?
