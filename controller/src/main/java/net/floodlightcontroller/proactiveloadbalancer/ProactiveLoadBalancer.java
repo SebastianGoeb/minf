@@ -5,6 +5,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Sets;
 import net.floodlightcontroller.core.*;
 import net.floodlightcontroller.core.internal.IOFSwitchService;
+import net.floodlightcontroller.core.internal.OFErrorMsgException;
 import net.floodlightcontroller.core.module.FloodlightModuleContext;
 import net.floodlightcontroller.core.module.FloodlightModuleException;
 import net.floodlightcontroller.core.module.IFloodlightModule;
@@ -79,14 +80,20 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
     private static Map<IPv4AddressWithMask, Long> getByteCounts(IOFSwitch ofSwitch, OFFlowStatsRequest statsRequest) {
         Objects.requireNonNull(ofSwitch);
 
-        LOG.info("Getting byte counts from switch {} table {}", ofSwitch.getId(), statsRequest.getTableId());
+        DatapathId dpid = ofSwitch.getId();
+
+        LOG.info("Getting byte counts from switch {} table {}", dpid, statsRequest.getTableId());
         List<OFFlowStatsReply> statsReplies;
         try {
             statsReplies = ofSwitch
                     .writeStatsRequest(statsRequest)
                     .get();
-        } catch (InterruptedException | ExecutionException e) {
-            LOG.debug("Unable to get byte counts from switch {}", ofSwitch.getId(), e);
+        } catch (InterruptedException e) {
+            LOG.info("Interruped while getting byte counts from switch {}", dpid);
+            return null;
+        } catch (ExecutionException e) {
+            LOG.info("Unable to get byte counts from switch {} due to {}", dpid,
+                    ((OFErrorMsgException) e.getCause()).getErrorMessage());
             return null;
         }
 

@@ -212,32 +212,34 @@ class MessageBuilder {
                     .setInstructions(ingressInstructionList)
                     .build());
 
-            // Egress
-            Match egressMatch = factory
-                    .buildMatch()
-                    .setExact(MatchField.ETH_TYPE, EthType.IPv4)
-                    .setMasked(MatchField.IPV4_DST, prefix)
-                    .build();
-
-            List<OFAction> egressActionList = Arrays.asList(
-                    actions.setField(oxms.ethSrc(SWITCH_MAC)),
-                    actions.setField(oxms.ethDst(DRIVER_MACS.values().iterator().next())), // TODO runtime
-                    actions.setField(oxms.ipv4Src(vip)));
-
-            List<OFInstruction> egressInstructionList = Arrays.asList(
-                    instructions.applyActions(egressActionList),
-                    instructions.gotoTable(egressMeasurementTableId));
-
-            flowMods.add(factory
-                    .buildFlowAdd()
-                    .setTableId(loadBalancingTableId)
-                    .setPriority(EGRESS_PRIORITY + prefix.getMask().asCidrMaskLength())
-                    .setMatch(egressMatch)
-                    .setInstructions(egressInstructionList)
-                    .build());
-
             // TODO Transitions?
         }
+
+
+        // Egress
+        Match egressMatch = factory
+                .buildMatch()
+                .setExact(MatchField.ETH_TYPE, EthType.IPv4)
+                .build();
+
+        List<OFAction> egressActionList = Arrays.asList(
+                actions.setField(oxms.ethSrc(SWITCH_MAC)),
+                actions.setField(oxms.ethDst(DRIVER_MACS.values().iterator().next())), // TODO runtime
+                actions.setField(oxms.ipv4Src(vip)));
+
+        List<OFInstruction> egressInstructionList = Arrays.asList(
+                instructions.applyActions(egressActionList),
+                instructions.gotoTable(egressMeasurementTableId));
+
+        flowMods.add(factory
+                .buildFlowAdd()
+                .setTableId(loadBalancingTableId)
+                .setPriority(EGRESS_PRIORITY)
+                .setMatch(egressMatch)
+                .setInstructions(egressInstructionList)
+                .build());
+
+        // TODO Transitions?
 
         return flowMods;
     }
