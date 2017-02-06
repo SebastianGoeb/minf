@@ -30,7 +30,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import static net.floodlightcontroller.proactiveloadbalancer.Strategy.greedy;
-import static net.floodlightcontroller.proactiveloadbalancer.Strategy.uniform;
 
 public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListener, IOFSwitchListener,
         IProactiveLoadBalancerService {
@@ -53,15 +52,15 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
 
     // Config
     private IPv4Address vip = null;
-    private Strategy strategy = uniform;
-    private Topology topology = new Topology();
+    private Strategy strategy = null;
+    private Topology topology = null;
 
     // Traffic measurement information
     private Map<DatapathId, PrefixTrie<Long>> measurements = new HashMap<>();
     private ScheduledFuture<?> collectionFuture;
 
     // Load balancing information
-    private Map<DatapathId, Set<Flow>> flows = new HashMap<>();
+    private Map<DatapathId, Set<LoadBalancingFlow>> flows = new HashMap<>();
 
     // Utilities
     private static PrefixTrie<Long> adjustedMeasurement(PrefixTrie<Long> measurement) {
@@ -193,10 +192,12 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
 
     @Override
     public void switchActivated(DatapathId dpid) {
-        boolean switchIsManaged = topology.getBridges().stream().anyMatch(bridge -> bridge.getDpid().equals(dpid));
-        if (vip != null && topology != null && strategy != null && switchIsManaged) {
-            LOG.info("Setting up switch {}", dpid);
-            setupSwitch(dpid);
+        if (vip != null && topology != null && strategy != null) {
+            boolean switchIsManaged = topology.getBridges().stream().anyMatch(bridge -> bridge.getDpid().equals(dpid));
+            if (switchIsManaged) {
+                LOG.info("Setting up switch {}", dpid);
+                setupSwitch(dpid);
+            }
         }
     }
 
@@ -344,6 +345,10 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
 
         // Add load balancing flows
         MessageBuilder.addLoadBalancingFlows(dpid, factory, vip, flows.get(dpid))
+                .forEach(ofSwitch::write);
+
+        // Add forwarding flows
+        MessageBuilder.addForwardingFlows(dpid, factory, topology.getForwardingFlows())
                 .forEach(ofSwitch::write);
     }
 

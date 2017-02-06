@@ -9,7 +9,7 @@ import java.util.stream.Collectors;
 
 class FlowBuilder {
 
-	static Set<Flow> buildFlowsUniform(Topology topology, Set<Flow> flows) {
+	static Set<LoadBalancingFlow> buildFlowsUniform(Topology topology, Set<LoadBalancingFlow> flows) {
 		// sort dips
 		List<Host> sortedHosts = Ordering.from(Comparator.comparing(Host::getDip)).immutableSortedCopy(topology.getHosts());
 
@@ -34,21 +34,21 @@ class FlowBuilder {
 		}
 
 		// Turn into prefixes
-		Set<Flow> newFlows = new LinkedHashSet<>();
+		Set<LoadBalancingFlow> newFlows = new LinkedHashSet<>();
 		int valueIncrement = Integer.MIN_VALUE >>> (ProactiveLoadBalancer.CLIENT_RANGE.getMask().asCidrMaskLength() + bits - 1);
 		int value = ProactiveLoadBalancer.CLIENT_RANGE.getValue().getInt();
 		int mask = IPv4Address.ofCidrMaskLength((ProactiveLoadBalancer.CLIENT_RANGE.getMask().asCidrMaskLength() + bits)).getInt();
 		for (int i = 0; i < splitWeights.size(); i++) {
 			int weight = splitWeights.get(i);
 			IPv4AddressWithMask prefix = IPv4Address.of(value).withMask(IPv4Address.of(mask * weight));
-			newFlows.add(new Flow(prefix, splitDips.get(i)));
+			newFlows.add(new LoadBalancingFlow(prefix, splitDips.get(i)));
 			value += valueIncrement * weight;
 		}
 
 		return newFlows;
 	}
 
-	static Set<Flow> buildFlowsGreedy(Topology topology, Set<Flow> flows, PrefixTrie<Long> traffic) {
+	static Set<LoadBalancingFlow> buildFlowsGreedy(Topology topology, Set<LoadBalancingFlow> flows, PrefixTrie<Long> traffic) {
 	    // TODO
         return Collections.emptySet();
 	}

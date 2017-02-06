@@ -178,7 +178,10 @@ class MessageBuilder {
         return flowMods;
     }
 
-    static List<OFFlowMod> addLoadBalancingFlows(DatapathId dpid, OFFactory factory, IPv4Address vip, Set<Flow> flows) {
+    static List<OFFlowMod> addLoadBalancingFlows(DatapathId dpid,
+            OFFactory factory,
+            IPv4Address vip,
+            Set<LoadBalancingFlow> flows) {
         // Preconditions
         Objects.requireNonNull(dpid);
         Objects.requireNonNull(factory);
@@ -197,7 +200,7 @@ class MessageBuilder {
 
         // Add ingress and egress load balancing flows
         List<OFFlowMod> flowMods = new LinkedList<>();
-        for (Flow flow : flows) {
+        for (LoadBalancingFlow flow : flows) {
             IPv4Address dip = flow.getDip();
             IPv4AddressWithMask prefix = flow.getPrefix();
 
@@ -391,6 +394,56 @@ class MessageBuilder {
                 .setPriority(FALLBACK_PRIORITY)
                 .setInstructions(Collections.singletonList(instructions.gotoTable(forwardingTableId)))
                 .build());
+
+        return flowMods;
+    }
+
+    // Forwarding
+    static List<OFFlowMod> deleteForwardingFlows(DatapathId dpid, OFFactory factory) {
+        // Preconditions
+        Objects.requireNonNull(dpid);
+        Objects.requireNonNull(factory);
+
+        // Delete ingress and egress fallback flows
+        List<OFFlowMod> flowMods = new LinkedList<>();
+
+        flowMods.add(factory
+                .buildFlowDelete()
+                .setTableId(getForwardingTableId(dpid))
+                .build());
+
+        return flowMods;
+    }
+
+    static List<OFFlowMod> addForwardingFlows(DatapathId dpid, OFFactory factory, List<ForwardingFlow> flows) {
+        // Preconditions
+        Objects.requireNonNull(dpid);
+        Objects.requireNonNull(factory);
+
+        // OpenFlow intsructions
+        OFActions actions = factory.actions();
+        OFInstructions instructions = factory.instructions();
+
+        // Table ids
+        TableId forwardingTableId = getForwardingTableId(dpid);
+
+        // Delete ingress and egress fallback flows
+        List<OFFlowMod> flowMods = new LinkedList<>();
+
+        for (ForwardingFlow flow : flows) {
+            List<OFAction> actionList = Collections.singletonList(actions.output(OFPort.of(flow.getPort()),
+                    Integer.MAX_VALUE));
+
+            flowMods.add(factory
+                    .buildFlowAdd()
+                    .setMatch(factory.buildMatch()
+                            .setExact(MatchField.ETH_TYPE, EthType.IPv4)
+                            .setMasked(MatchField.IPV4_DST, flow.getPrefix())
+                            .build())
+                    .setTableId(forwardingTableId)
+                    .setInstructions(Collections.singletonList(instructions.applyActions(actionList)))
+                    .build());
+        }
 
         return flowMods;
     }
