@@ -2,6 +2,7 @@ package net.floodlightcontroller.proactiveloadbalancer;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.primitives.UnsignedInts;
 import net.floodlightcontroller.core.*;
 import net.floodlightcontroller.core.internal.IOFSwitchService;
 import net.floodlightcontroller.core.internal.OFErrorMsgException;
@@ -10,6 +11,8 @@ import net.floodlightcontroller.core.module.FloodlightModuleException;
 import net.floodlightcontroller.core.module.IFloodlightModule;
 import net.floodlightcontroller.core.module.IFloodlightService;
 import net.floodlightcontroller.linkdiscovery.Link;
+import net.floodlightcontroller.packet.Ethernet;
+import net.floodlightcontroller.packet.IPv4;
 import net.floodlightcontroller.proactiveloadbalancer.web.ProactiveLoadBalancerWebRoutable;
 import net.floodlightcontroller.restserver.IRestApiService;
 import net.floodlightcontroller.threadpool.IThreadPoolService;
@@ -17,10 +20,7 @@ import net.floodlightcontroller.topology.ITopologyService;
 import org.projectfloodlight.openflow.protocol.*;
 import org.projectfloodlight.openflow.protocol.match.Match;
 import org.projectfloodlight.openflow.protocol.match.MatchField;
-import org.projectfloodlight.openflow.types.DatapathId;
-import org.projectfloodlight.openflow.types.IPv4Address;
-import org.projectfloodlight.openflow.types.IPv4AddressWithMask;
-import org.projectfloodlight.openflow.types.Masked;
+import org.projectfloodlight.openflow.types.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -127,12 +127,25 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
         return false;
     }
 
-    // Process incoming packets
     @Override
     public Command receive(IOFSwitch iofSwitch, OFMessage msg, FloodlightContext cntx) {
         switch (msg.getType()) {
             case PACKET_IN:
-//                Ethernet eth = IFloodlightProviderService.bcStore.get(cntx, IFloodlightProviderService.CONTEXT_PI_PAYLOAD);
+                Ethernet eth = IFloodlightProviderService.bcStore.get(cntx, IFloodlightProviderService.CONTEXT_PI_PAYLOAD);
+                if (EthType.IPv4 == eth.getEtherType()) {
+                    IPv4 ipv4 = (IPv4) eth.getPayload();
+                    IPv4Address src = ipv4.getSourceAddress();
+                    for (StrategyRange range : config.getStrategyRanges()) {
+                        if (range.getMin().getInt() < src.getInt() && src.getInt() < range.getMax().getInt()) {
+                            switch (range.getStrategy()) {
+                                case traditional:
+                                    handlePacketTraditional(ipv4);
+                                    break;
+                            }
+                            break;
+                        }
+                    }
+                }
                 LOG.info("Packet in");
                 break;
             case FLOW_REMOVED:
@@ -142,6 +155,27 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
                 break;
         }
         return Command.STOP;
+    }
+
+    private void handlePacketTraditional(IPv4 ipv4) {
+        // pick server (random)
+        Random random = new Random();
+        Host server = config.getTopology().getHosts().stream()
+                .skip(random.nextInt(config.getTopology().getHosts().size()))
+                .findFirst()
+                .orElse(null);
+        LoadBalancingFlow flow = new LoadBalancingFlow(ipv4.getSourceAddress().withMaskOfLength(32), server.getDip());
+
+        // install rule from src,vip to server
+        // TODO don't install on all switches
+        // TODO make sure this doesn't get deleted by prefix-based load balancing update routine
+        for (IOFSwitch iofSwitch : getActiveManagedSwitches()) {
+            DatapathId dpid = iofSwitch.getId();
+            OFFactory factory = iofSwitch.getOFFactory();
+            IPv4Address vip = intermediateVips.get(dpid);
+            MessageBuilder.addTraditionalLoadBalancingFlow(dpid, factory, vip, flow)
+                    .forEach(iofSwitch::write);
+        }
     }
 
     // ----------------------------------------------------------------
@@ -285,20 +319,62 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
                 DatapathId dpid = iofSwitch.getId();
                 OFFactory factory = iofSwitch.getOFFactory();
                 Topology topology = config.getTopology();
+                IPv4Address vip = intermediateVips.get(dpid);
 
                 // Add stub flows
-                MessageBuilder.addStubFlows(dpid, factory, intermediateVips.get(dpid))
+                MessageBuilder.addStubFlows(dpid, factory, vip)
                         .forEach(iofSwitch::write);
 
                 // Add measurement fallback flows
                 MessageBuilder.addFallbackFlows(dpid, factory)
                         .forEach(iofSwitch::write);
 
+                // Setup load balancing flows (default flows)
+                for (StrategyRange range : config.getStrategyRanges()) {
+                     switch (range.getStrategy()) {
+                         case uniform:
+                         case non_uniform:
+                             // Setup nothing, really
+                             break;
+                         case traditional:
+                             // Convert min,max to list of prefixes
+                             int rangeMin = range.getMin().getInt();
+                             int rangeMax = range.getMax().getInt();
+                             List<IPv4AddressWithMask> prefixes = new ArrayList<>();
+                             Queue<IPv4AddressWithMask> queue = new PriorityQueue<>();
+                             queue.add(IPv4AddressWithMask.of("0.0.0.0/0"));
+                             while(!queue.isEmpty()) {
+                                 IPv4AddressWithMask prefix = queue.poll();
+                                 int min = prefix.getValue().getInt();
+                                 int max = prefix.getValue().or(prefix.getMask().not()).getInt();
+                                 boolean inside = UnsignedInts.compare(rangeMin, min) <= 0 && UnsignedInts.compare(max, rangeMax) <= 0;
+                                 boolean outside = UnsignedInts.compare(max, rangeMin) < 0 || UnsignedInts.compare(rangeMax, min) < 0;
+                                 if (inside) {
+                                     // Contained, save
+                                     prefixes.add(prefix);
+                                } else if (!outside) {
+                                     // Too large, split
+                                     queue.add(IPv4Address.of(min).withMaskOfLength(prefix.getMask().asCidrMaskLength() + 1));
+                                     queue.add(IPv4Address.of(max).withMaskOfLength(prefix.getMask().asCidrMaskLength() + 1));
+                                 }
+                             }
+                             // Install controller flows
+                             MessageBuilder.addTraditionalLoadBalancingControllerFlows(dpid, factory,vip, prefixes)
+                                    .forEach(iofSwitch::write);
+                             break;
+                     }
+                }
+                MessageBuilder.addLoadBalancingEgressFlows(dpid, factory, vip)
+                        .forEach(iofSwitch::write);
+
                 // Add forwarding flows
                 List<ForwardingFlow> forwardingFlows = new ArrayList<>();
-                for (Link link : allLinks.get(dpid)) {
-                    if (!Objects.equals(link.getDst(), dpid) && intermediateVips.containsKey(link.getDst())) {
-                        forwardingFlows.add(new ForwardingFlow(intermediateVips.get(link.getDst()).withMask(IPv4Address.NO_MASK), link.getSrcPort().getPortNumber()));
+                if (allLinks.containsKey(dpid)) {
+                    for (Link link : allLinks.get(dpid)) {
+                        if (!Objects.equals(link.getDst(), dpid) && intermediateVips.containsKey(link.getDst())) {
+                            forwardingFlows.add(new ForwardingFlow(intermediateVips.get(link.getDst()).withMask(
+                                    IPv4Address.NO_MASK), link.getSrcPort().getPortNumber()));
+                        }
                     }
                 }
                 Bridge bridge = topology.getBridges().stream().filter(br -> br.getDpid().equals(dpid)).findFirst().orElse(null);
@@ -310,6 +386,7 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
                             .orElse(null)
                             .getPort()));
                 }
+                forwardingFlows.add(new ForwardingFlow(CLIENT_RANGE, 1)); // TODO use proper port number, from dependents
                 MessageBuilder.addForwardingFlows(dpid, factory, forwardingFlows)
                         .forEach(iofSwitch::write);
             });
@@ -328,11 +405,16 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
                         .flatMap(Collection::stream)
                         .collect(toList());
                 PrefixTrie<Double> mergedMeasurements = mergeMeasurements(allMeasurements);
-                // update lb flows
-                Map<DatapathId, List<LoadBalancingFlow>> lbFlows = updateLoadBalancingFlows(mergedMeasurements);
-                // write new lb flows
-                writeLoadBalancingFlows(lbFlows);
-
+                for (StrategyRange range : config.getStrategyRanges()) {
+                    switch (range.getStrategy()) {
+                        case non_uniform:
+                            // TODO add range info
+                            // update lb flows
+                            Map<DatapathId, List<LoadBalancingFlow>> lbFlows = updateLoadBalancingFlows(mergedMeasurements);
+                            // write new lb flows
+                            writeLoadBalancingFlows(lbFlows);
+                    }
+                }
             }, 0, MEASUREMENT_INTERVAL, TimeUnit.SECONDS);
         }
     }
