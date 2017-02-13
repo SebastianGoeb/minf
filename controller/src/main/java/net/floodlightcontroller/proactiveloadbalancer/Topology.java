@@ -1,38 +1,43 @@
 package net.floodlightcontroller.proactiveloadbalancer;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
 public class Topology {
 
-    @JsonProperty
     private Set<Bridge> bridges;
-
-    @JsonProperty
     private Set<Host> hosts;
-
-    @JsonProperty
     private List<ForwardingFlow> forwardingFlows;
 
-    Topology() {
-        bridges = Collections.emptySet();
-        hosts = Collections.emptySet();
-        forwardingFlows = Collections.emptyList();
+    @JsonCreator
+    public Topology(
+            @JsonProperty("bridges")
+                    Set<Bridge> bridges,
+            @JsonProperty("hosts")
+                    Set<Host> hosts,
+            @JsonProperty("forwardingFlows")
+                    List<ForwardingFlow> forwardingFlows) {
+        Objects.requireNonNull(bridges);
+        Objects.requireNonNull(hosts);
+        Objects.requireNonNull(forwardingFlows);
+        this.bridges = bridges;
+        this.hosts = hosts;
+        this.forwardingFlows = forwardingFlows;
     }
 
-    Set<Bridge> getBridges() {
+    public Set<Bridge> getBridges() {
         return bridges;
     }
 
-    Set<Host> getHosts() {
+    public Set<Host> getHosts() {
         return hosts;
     }
 
-    List<ForwardingFlow> getForwardingFlows() {
+    public List<ForwardingFlow> getForwardingFlows() {
         return forwardingFlows;
     }
 

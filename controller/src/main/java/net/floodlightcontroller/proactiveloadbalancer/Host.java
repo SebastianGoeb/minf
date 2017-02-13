@@ -1,5 +1,6 @@
 package net.floodlightcontroller.proactiveloadbalancer;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
@@ -10,24 +11,28 @@ import java.util.Objects;
 
 class Host {
 
-    @JsonProperty
-    @JsonSerialize(using = ToStringSerializer.class)
-    @JsonDeserialize(using = IPv4AddressDeserializer.class)
     private IPv4Address dip;
-
-    @JsonProperty
     private double weight;
 
-    Host() {
-        dip = IPv4Address.NONE;
-        weight = 1;
+    @JsonCreator
+    public Host(
+            @JsonProperty("dip")
+            @JsonSerialize(using = ToStringSerializer.class)
+            @JsonDeserialize(using = IPv4AddressDeserializer.class)
+                    IPv4Address dip,
+            @JsonProperty("weight")
+                    double weight) {
+        Objects.requireNonNull(dip);
+        Objects.requireNonNull(weight);
+        this.dip = dip;
+        this.weight = weight;
     }
 
-    IPv4Address getDip() {
+    public IPv4Address getDip() {
         return dip;
     }
 
-    double getWeight() {
+    public double getWeight() {
         return weight;
     }
 

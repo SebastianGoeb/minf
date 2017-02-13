@@ -3,8 +3,10 @@ package net.floodlightcontroller.proactiveloadbalancer;
 import org.projectfloodlight.openflow.types.IPv4Address;
 import org.projectfloodlight.openflow.types.IPv4AddressWithMask;
 
+import java.util.Collection;
+import java.util.PriorityQueue;
+import java.util.Queue;
 import java.util.function.BiConsumer;
-import java.util.function.Function;
 
 class PrefixTrie<T> {
 
@@ -16,14 +18,28 @@ class PrefixTrie<T> {
         this.root = root;
     }
 
+    static <T> PrefixTrie<T> empty(IPv4AddressWithMask rootPrefix, T defaultValue) {
+        return new PrefixTrie<>(rootPrefix, Node.with(defaultValue));
+    }
+
     static <T> PrefixTrie<T> copy(PrefixTrie<T> tree) {
         return new PrefixTrie<>(tree.rootPrefix, Node.copy(tree.root));
     }
 
-    static <T> PrefixTrie<T> inflate(IPv4AddressWithMask rootPrefix, T defaultValue, Function<IPv4AddressWithMask, Boolean> shouldExpand) {
-        PrefixTrie<T> newTree = new PrefixTrie<>(rootPrefix, Node.with(defaultValue));
-        newTree.traversePreOrder((node, prefix) -> {
-            if (shouldExpand.apply(prefix)) {
+    static <T> PrefixTrie<T> inflate(IPv4AddressWithMask rootPrefix, T defaultValue, Collection<IPv4AddressWithMask> prefixes) {
+        // Sorted by prefix (low to high, then shallow to deep)
+        Queue<IPv4AddressWithMask> prefixesInPreOrder = new PriorityQueue<>(prefixes);
+        PrefixTrie<T> newTree = empty(rootPrefix, defaultValue);
+        // traverse in pre-order, expand relevant nodes until all prefixes are covered
+        newTree.traversePreOrder((node, currentPrefix) -> {
+            // Remove prefix for current depth, no longer required.
+            IPv4AddressWithMask nextPrefix = prefixesInPreOrder.peek();
+            while (currentPrefix.equals(nextPrefix)) {
+                prefixesInPreOrder.remove();
+                nextPrefix = prefixesInPreOrder.peek();
+            }
+            // If next prefix is further down this subtree, continue expanding.
+            if (nextPrefix != null && currentPrefix.contains(nextPrefix.getValue())) {
                 node.expand(defaultValue, defaultValue);
             }
         });
@@ -99,9 +115,9 @@ class PrefixTrie<T> {
         }
 
         void expand(T value0, T value1) {
-            child0 = Node.with(value);
+            child0 = Node.with(value0);
             child0.parent = this;
-            child1 = Node.with(value);
+            child1 = Node.with(value1);
             child1.parent = this;
         }
 

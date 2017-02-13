@@ -1,5 +1,6 @@
 package net.floodlightcontroller.proactiveloadbalancer;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
@@ -13,36 +14,38 @@ import java.util.Set;
 
 class Bridge {
 
-    @JsonProperty
-    @JsonSerialize(using = ToStringSerializer.class)
-    @JsonDeserialize(using = DatapathIdDeserializer.class)
     private DatapathId dpid;
-
-    @JsonProperty
-    @JsonSerialize(contentUsing = ToStringSerializer.class)
-    @JsonDeserialize(contentUsing = DatapathIdDeserializer.class)
     private Set<DatapathId> upstreamBridges;
-
-    @JsonProperty
-    @JsonSerialize(contentUsing = ToStringSerializer.class)
-    @JsonDeserialize(contentUsing = IPv4AddressDeserializer.class)
     private Set<IPv4Address> upstreamHosts;
 
-    Bridge() {
-        dpid = DatapathId.NONE;
-        upstreamBridges = Collections.emptySet();
-        upstreamHosts = Collections.emptySet();
+    @JsonCreator
+    public Bridge(
+            @JsonProperty("dpid")
+            @JsonSerialize(using = ToStringSerializer.class)
+            @JsonDeserialize(using = DatapathIdDeserializer.class)
+                    DatapathId dpid,
+            @JsonProperty("upstreamBridges")
+            @JsonSerialize(contentUsing = ToStringSerializer.class)
+            @JsonDeserialize(contentUsing = DatapathIdDeserializer.class)
+                    Set<DatapathId> upstreamBridges,
+            @JsonProperty("upstreamHosts")
+            @JsonSerialize(contentUsing = ToStringSerializer.class)
+            @JsonDeserialize(contentUsing = IPv4AddressDeserializer.class)
+                    Set<IPv4Address> upstreamHosts) {
+        this.dpid = dpid;
+        this.upstreamBridges = upstreamBridges != null ? upstreamBridges : Collections.emptySet();
+        this.upstreamHosts = upstreamHosts != null ? upstreamHosts : Collections.emptySet();
     }
 
-    DatapathId getDpid() {
+    public DatapathId getDpid() {
         return dpid;
     }
 
-    Set<DatapathId> getUpstreamBridges() {
+    public Set<DatapathId> getUpstreamBridges() {
         return upstreamBridges;
     }
 
-    Set<IPv4Address> getUpstreamHosts() {
+    public Set<IPv4Address> getUpstreamHosts() {
         return upstreamHosts;
     }
 

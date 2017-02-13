@@ -40,6 +40,7 @@ class MessageBuilder {
 
 
     static {
+        SERVER_MACS.put(IPv4Address.of("10.0.0.1"), MacAddress.of("00:00:00:00:00:01"));
         SERVER_MACS.put(IPv4Address.of("10.0.0.2"), MacAddress.of("00:00:00:00:00:02"));
         SERVER_MACS.put(IPv4Address.of("10.0.0.3"), MacAddress.of("00:00:00:00:00:03"));
         SERVER_MACS.put(IPv4Address.of("10.0.0.4"), MacAddress.of("00:00:00:00:00:04"));
@@ -164,7 +165,7 @@ class MessageBuilder {
     static List<OFFlowMod> addLoadBalancingFlows(DatapathId dpid,
             OFFactory factory,
             IPv4Address vip,
-            Set<LoadBalancingFlow> flows) {
+            Collection<LoadBalancingFlow> flows) {
         // Preconditions
         Objects.requireNonNull(dpid);
         Objects.requireNonNull(factory);
@@ -195,9 +196,12 @@ class MessageBuilder {
                     .setMasked(MatchField.IPV4_SRC, prefix)
                     .build();
 
+            MacAddress mac = SERVER_MACS.containsKey(dip)
+                    ? SERVER_MACS.get(dip)
+                    : MacAddress.of(dip.getInt());
             List<OFAction> ingressActionList = Arrays.asList(
                     actions.setField(oxms.ethSrc(SWITCH_MAC)),
-                    actions.setField(oxms.ethDst(SERVER_MACS.get(dip))),
+                    actions.setField(oxms.ethDst(mac)),
                     actions.setField(oxms.ipv4Dst(dip)));
 
             List<OFInstruction> ingressInstructionList = Arrays.asList(
@@ -320,6 +324,60 @@ class MessageBuilder {
 
         return flowMods;
     }
+    static List<OFFlowMod> addMeasurementFlows(DatapathId dpid, OFFactory factory, Collection<IPv4AddressWithMask> flows) {
+        // Preconditions
+        Objects.requireNonNull(dpid);
+        Objects.requireNonNull(factory);
+        Objects.requireNonNull(flows);
+
+        // OpenFlow intsructions
+        OFInstructions instructions = factory.instructions();
+
+        // Table ids
+        TableId ingressMeasurementTableId = getIngressMeasurementTableId(dpid);
+        TableId loadBalancingTableId = getLoadBalancingTableId(dpid);
+        TableId egressMeasurementTableId = getEgressMeasurementTableId(dpid);
+        TableId forwardingTableId = getForwardingTableId(dpid);
+
+        // Add ingress and egress measurement flows
+        List<OFFlowMod> flowMods = new LinkedList<>();
+        for (IPv4AddressWithMask prefix : flows) {
+            Match ingressMatch = factory
+                    .buildMatch()
+                    .setExact(MatchField.ETH_TYPE, EthType.IPv4)
+                    // TODO vip?
+                    .setMasked(MatchField.IPV4_SRC, prefix)
+                    .build();
+
+            // Ingress
+            flowMods.add(factory
+                    .buildFlowAdd()
+                    .setTableId(ingressMeasurementTableId)
+                    .setCookie(INGRESS_COOKIE)
+                    .setPriority(INGRESS_PRIORITY + prefix.getMask().asCidrMaskLength())
+                    .setMatch(ingressMatch)
+                    .setInstructions(Collections.singletonList(instructions.gotoTable(loadBalancingTableId)))
+                    .build());
+
+            Match egressMatch = factory
+                    .buildMatch()
+                    .setExact(MatchField.ETH_TYPE, EthType.IPv4)
+                    .setMasked(MatchField.IPV4_DST, prefix)
+                    .build();
+
+            // Egress
+            flowMods.add(factory
+                    .buildFlowAdd()
+                    .setTableId(egressMeasurementTableId)
+                    .setCookie(EGRESS_COOKIE)
+                    .setPriority(EGRESS_PRIORITY + prefix.getMask().asCidrMaskLength())
+                    .setMatch(egressMatch)
+                    .setInstructions(Collections.singletonList(instructions.gotoTable(forwardingTableId)))
+                    .build());
+        }
+
+        return flowMods;
+    }
 
     static List<OFFlowMod> deleteMeasurementFlows(DatapathId dpid, OFFactory factory) {
         // Preconditions
@@ -424,8 +482,15 @@ class MessageBuilder {
         List<OFFlowMod> flowMods = new LinkedList<>();
 
         for (ForwardingFlow flow : flows) {
-            List<OFAction> actionList = Collections.singletonList(actions.output(OFPort.of(flow.getPort()),
-                    Integer.MAX_VALUE));
+            List<OFAction> actionList;
+            if ((flow.getPrefix().equals(IPv4AddressWithMask.of("10.5.1.13/32")) && flow.getPort() == 1)
+                    || (false && flow.getPrefix().equals(IPv4AddressWithMask.of("10.5.1.12/32")) && flow.getPort() == 3)) {
+                actionList = Collections.singletonList(actions.output(OFPort.CONTROLLER,
+                        Integer.MAX_VALUE));
+            } else {
+                actionList = Collections.singletonList(actions.output(OFPort.of(flow.getPort()),
+                        Integer.MAX_VALUE));
+            }
 
             IPv4AddressWithMask prefix = flow.getPrefix();
 

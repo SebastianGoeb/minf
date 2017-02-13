@@ -16,26 +16,27 @@ public class TopologyResource extends ServerResource {
 
     @Put("json")
     public Response<?> set(String json) throws IOException {
-        IProactiveLoadBalancerService service = ((IProactiveLoadBalancerService) getContext()
-            .getAttributes()
-            .get(IProactiveLoadBalancerService.class.getCanonicalName()));
-
-        // Parse JSON
-        Topology topology;
-        try {
-            topology = new ObjectMapper().readValue(json, Topology.class);
-        } catch (IOException e) {
-            setStatus(Status.CLIENT_ERROR_BAD_REQUEST);
-            return new Response<Void>()
-                    .addError("Invalid json");
-        }
-
-        // Apply configuration
-        service.setTopology(topology);
-
-        // Construct response
-        setStatus(Status.SUCCESS_CREATED);
-        return new Response<Topology>()
-            .setData(topology);
+//        IProactiveLoadBalancerService service = ((IProactiveLoadBalancerService) getContext()
+//            .getAttributes()
+//            .get(IProactiveLoadBalancerService.class.getCanonicalName()));
+//
+//        // Parse JSON
+//        Topology topology;
+//        try {
+//            topology = new ObjectMapper().readValue(json, Topology.class);
+//        } catch (IOException e) {
+//            setStatus(Status.CLIENT_ERROR_BAD_REQUEST);
+//            return new Response<Void>()
+//                    .addError("Invalid json");
+//        }
+//
+//        // Apply configuration
+//        service.setTopology(topology);
+//
+//        // Construct response
+//        setStatus(Status.SUCCESS_CREATED);
+//        return new Response<Topology>()
+//            .setData(topology);
+        return null;
     }
 }

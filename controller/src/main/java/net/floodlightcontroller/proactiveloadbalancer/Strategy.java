@@ -1,5 +1,5 @@
 package net.floodlightcontroller.proactiveloadbalancer;
 
-public enum Strategy {
-    uniform, greedy;
+enum Strategy {
+    uniform, non_uniform, traditional
 }
