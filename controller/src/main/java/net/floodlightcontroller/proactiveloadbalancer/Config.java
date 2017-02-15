@@ -21,7 +21,7 @@ public class Config {
     @JsonSerialize(using = ToStringSerializer.class)
     private IPv4AddressWithMask dVipRange;
     @JsonProperty
-    private List<StrategyRange> strategyRanges;
+    private Map<Strategy, IPv4AdressRange> strategyRanges;
     @JsonProperty
     private Topology topology;
     @JsonProperty
@@ -43,7 +43,7 @@ public class Config {
         return dVipRange;
     }
 
-    public List<StrategyRange> getStrategyRanges() {
+    public Map<Strategy, IPv4AdressRange> getStrategyRanges() {
         return strategyRanges;
     }
 
@@ -78,7 +78,8 @@ public class Config {
                 Objects.equals(dVipRange, config.dVipRange) &&
                 Objects.equals(strategyRanges, config.strategyRanges) &&
                 Objects.equals(topology, config.topology) &&
-                Objects.equals(loadBalancers, config.loadBalancers);
+                Objects.equals(loadBalancers, config.loadBalancers) &&
+                Objects.equals(weights, config.weights);
     }
 
     @Override
@@ -89,6 +90,7 @@ public class Config {
                 topology,
                 loadBalancers,
                 measurementInterval,
-                measurementThreshold);
+                measurementThreshold,
+                weights);
     }
 }

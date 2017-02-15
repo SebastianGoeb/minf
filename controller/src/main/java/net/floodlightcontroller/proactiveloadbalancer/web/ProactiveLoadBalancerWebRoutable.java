@@ -11,12 +11,6 @@ public class ProactiveLoadBalancerWebRoutable implements RestletRoutable {
         Router router = new Router(context);
         // Config paths
         router.attach("/config", ConfigResource.class);
-//        router.attach("/topology", TopologyResource.class);
-//        router.attach("/vip", VipResource.class);
-//        router.attach("/traditional_range", SwitchResource.class);
-//        router.attach("/bit_shuffle", ShuffleResource.class);
-//        router.attach("/overlap", OverlapResource.class);
-//        router.attach("/eviction", EvictionResource.class);
         return router;
     }
 

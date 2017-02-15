@@ -58,6 +58,7 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
     private ScheduledFuture<?> collectionFuture;
     private Map<DatapathId, Collection<Measurement>> measurements;
     private Map<DatapathId, List<LoadBalancingFlow>> lbFlows;
+    private Map<DatapathId, List<LoadBalancingFlow>> uniformLbFlows;
 
     // Utilities
     private static List<Measurement> getByteCounts(IOFSwitch ofSwitch) {
@@ -135,14 +136,10 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
                 if (EthType.IPv4 == eth.getEtherType()) {
                     IPv4 ipv4 = (IPv4) eth.getPayload();
                     IPv4Address src = ipv4.getSourceAddress();
-                    for (StrategyRange range : config.getStrategyRanges()) {
+                    if (config.getStrategyRanges().containsKey(traditional)) {
+                        IPv4AdressRange range = config.getStrategyRanges().get(traditional);
                         if (range.getMin().getInt() < src.getInt() && src.getInt() < range.getMax().getInt()) {
-                            switch (range.getStrategy()) {
-                                case traditional:
-                                    handlePacketTraditional(ipv4);
-                                    break;
-                            }
-                            break;
+                            handlePacketTraditional(ipv4);
                         }
                     }
                 }
@@ -221,12 +218,9 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
 
     @Override
     public void switchActivated(DatapathId dpid) {
-        if (config != null) {
-            if (config.getTopology().getSwitches().contains(dpid)) {
-                LOG.info("Setting up switch {}", dpid);
-                // TODO
-//                setupSwitch(dpid);
-            }
+        if (config != null && config.getTopology().getSwitches().contains(dpid)) {
+            LOG.info("Setting up switch {}", dpid);
+            setupSwitch(switchManager.getActiveSwitch(dpid));
         }
     }
 
@@ -303,11 +297,11 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
             }
 
             // Calculate total client range
-            clientMin = config.getStrategyRanges().stream()
+            clientMin = config.getStrategyRanges().values().stream()
                     .flatMap(range -> Stream.of(range.getMin(), range.getMax()))
                     .min(naturalOrder())
                     .orElse(null);
-            clientMax = config.getStrategyRanges().stream()
+            clientMax = config.getStrategyRanges().values().stream()
                     .flatMap(range -> Stream.of(range.getMin(), range.getMax()))
                     .max(naturalOrder())
                     .orElse(null);
@@ -318,100 +312,55 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
                 measurements.put(dpid, new ArrayList<>());
             }
 
-            // ---- Initial uniform load balancing flows ----
-            Map<DatapathId, List<LoadBalancingFlow>> uniformLbFlows = updateLoadBalancingFlows(mergeMeasurements(
+            // ---- Uniform load balancing flows ----
+            uniformLbFlows = updateLoadBalancingFlows(mergeMeasurements(
                     measurements.values().stream()
                             .flatMap(Collection::stream)
                             .collect(toList())));
 
             // ---- Initial non-uniform load balancing flows ----
-            for (StrategyRange range : config.getStrategyRanges()) {
-                if (range.getStrategy() == non_uniform) {
-                    // TODO add range info
-                    // update lb flows
-                    lbFlows = updateLoadBalancingFlows(mergeMeasurements(measurements.values().stream()
-                            .flatMap(Collection::stream)
-                            .collect(toList())));
-                }
-            }
+            lbFlows = updateNonuniformLoadBalancingFlows();
 
             // ---- Install permanent and initial flows ----
-            getActiveManagedSwitches().forEach(iofSwitch -> {
-                DatapathId dpid = iofSwitch.getId();
-                OFFactory factory = iofSwitch.getOFFactory();
-                IPv4Address vip = dVips.get(dpid);
-
-                // Add stub flows
-                MessageBuilder.addStubFlows(dpid, factory, vip)
-                        .forEach(iofSwitch::write);
-
-                // Add measurement fallback flows
-                MessageBuilder.addFallbackFlows(dpid, factory)
-                        .forEach(iofSwitch::write);
-
-                // Add load balancing egress flows
-                MessageBuilder.addLoadBalancingEgressFlows(dpid, factory, vip)
-                        .forEach(iofSwitch::write);
-
-                // Install traditional load balancer controller flows
-                for (StrategyRange range : config.getStrategyRanges()) {
-                    if (range.getStrategy() == uniform) {
-                        // TODO use proper uniform method
-                        MessageBuilder.addLoadBalancingFlows(dpid, factory, dVips.get(dpid), uniformLbFlows.get(dpid))
-                                .forEach(iofSwitch::write);
-                    } else if (range.getStrategy() == traditional) {
-                        // TODO subsets for hierarchical load balancing?
-                        List<IPv4AddressWithMask> prefixes = IPUtils.nonOverlappingPrefixes(range.getMin(), range.getMax());
-                        MessageBuilder.addTraditionalLoadBalancingControllerFlows(dpid, factory, vip, prefixes)
-                                .forEach(iofSwitch::write);
-                    }
-                }
-
-                // Add forwarding flows
-                MessageBuilder.addForwardingFlows(dpid, factory, calculateForwardingFlows(dpid))
-                        .forEach(iofSwitch::write);
-            });
-
-            // ---- Write initial non-uniform load balancing flows ----
-            updateNonuniformLoadBalancingFlows();
+            getActiveManagedSwitches().forEach(iofSwitch -> setupSwitch(iofSwitch));
 
             // ---- Start measurement cycle ----
             collectionFuture = threadPoolService.getScheduledExecutor().scheduleAtFixedRate(() -> {
                 measurements = readMeasurements();
-                updateMsmtFlows();
+                updateAndWriteMsmtFlows();
 
                 // update load balancing flows
-                for (StrategyRange range : config.getStrategyRanges()) {
-                    if (range.getStrategy() == non_uniform) {
-                        // TODO add range info
-                        // update lb flows
-                        lbFlows = updateLoadBalancingFlows(mergeMeasurements(measurements.values().stream()
-                                .flatMap(Collection::stream)
-                                .collect(toList())));
-                    }
-                }
-                updateNonuniformLoadBalancingFlows();
+                lbFlows = updateNonuniformLoadBalancingFlows();
+                getActiveManagedSwitches().forEach(iofSwitch -> {
+                    DatapathId dpid = iofSwitch.getId();
+                    OFFactory factory = iofSwitch.getOFFactory();
+                    // TODO only delete nonuniform ones
+                    MessageBuilder.deleteLoadBalancingFlows(dpid, factory)
+                            .forEach(iofSwitch::write);
+                    MessageBuilder.addLoadBalancingFlows(dpid, factory, dVips.get(dpid), lbFlows.get(dpid))
+                            .forEach(iofSwitch::write);
+                });
             }, config.getMeasurementInterval(), config.getMeasurementInterval(), TimeUnit.SECONDS);
         }
     }
 
-    private void updateNonuniformLoadBalancingFlows() {
-        getActiveManagedSwitches().forEach(iofSwitch -> {
-            DatapathId dpid = iofSwitch.getId();
-            OFFactory factory = iofSwitch.getOFFactory();
-            // TODO only delete nonuniform ones
-            MessageBuilder.deleteLoadBalancingFlows(dpid, factory)
-                    .forEach(iofSwitch::write);
-            MessageBuilder.addLoadBalancingFlows(dpid, factory, dVips.get(dpid), lbFlows.get(dpid))
-                    .forEach(iofSwitch::write);
-        });
+    private Map<DatapathId, List<LoadBalancingFlow>> updateNonuniformLoadBalancingFlows() {
+        if (config.getStrategyRanges().containsKey(non_uniform)) {
+            // TODO add range info
+            return updateLoadBalancingFlows(mergeMeasurements(measurements.values().stream()
+                    .flatMap(Collection::stream)
+                    .collect(toList())));
+        }
+        return null;
     }
 
-    private void updateMsmtFlows() {
+    private void updateAndWriteMsmtFlows() {
         getActiveManagedSwitches().forEach(iofSwitch -> {
             DatapathId dpid = iofSwitch.getId();
             OFFactory factory = iofSwitch.getOFFactory();
+            // update
             Collection<IPv4AddressWithMask> flows = updateMeasurementFlows(measurements.get(dpid));
+            // write
             MessageBuilder.deleteMeasurementFlows(dpid, factory)
                     .forEach(iofSwitch::write);
             MessageBuilder.addMeasurementFlows(dpid, factory, flows)
@@ -588,31 +537,51 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
         return flowsByDpid;
     }
 
-    private void setupSwitch(DatapathId dpid) {
-        IOFSwitch ofSwitch = switchManager.getActiveSwitch(dpid);
-        OFFactory factory = ofSwitch.getOFFactory();
-        IPv4Address vip = config.getVip();
-        Topology topology = config.getTopology();
+    private void setupSwitch(IOFSwitch iofSwitch) {
+        DatapathId dpid = iofSwitch.getId();
+        OFFactory factory = iofSwitch.getOFFactory();
+        IPv4Address vip = dVips.get(dpid);
 
-//        // Add stub flows
-//        MessageBuilder.addStubFlows(dpid, factory, vip)
-//                .forEach(ofSwitch::write);
-//
-//        // Add measurement fallback flows
-//        MessageBuilder.addFallbackFlows(dpid, factory)
-//                .forEach(ofSwitch::write);
-//
-//        // Add measurement flows
-//        MessageBuilder.addMeasurementFlows(dpid, factory, measurements.get(dpid))
-//                .forEach(ofSwitch::write);
-//
-//        // Add load balancing flows
-//        MessageBuilder.addLoadBalancingFlows(dpid, factory, vip, flows.get(dpid))
-//                .forEach(ofSwitch::write);
-//
-//        // Add forwarding flows
-//        MessageBuilder.addForwardingFlows(dpid, factory, topology.getForwardingFlows())
-//                .forEach(ofSwitch::write);
+        // Add stub flows
+        MessageBuilder.addStubFlows(dpid, factory, vip)
+                .forEach(iofSwitch::write);
+
+        // Add measurement fallback flows
+        MessageBuilder.addFallbackFlows(dpid, factory)
+                .forEach(iofSwitch::write);
+
+        // Add load balancing egress flows
+        MessageBuilder.addLoadBalancingEgressFlows(dpid, factory, vip)
+                .forEach(iofSwitch::write);
+
+        // Install uniform load balancer flows
+        if (config.getStrategyRanges().containsKey(uniform)) {
+            // TODO use proper uniform method
+            MessageBuilder.addLoadBalancingFlows(dpid, factory, dVips.get(dpid), uniformLbFlows.get(dpid))
+                    .forEach(iofSwitch::write);
+        }
+
+        // Install traditional load balancer controller flows
+        if (config.getStrategyRanges().containsKey(traditional)) {
+            IPv4AdressRange range = config.getStrategyRanges().get(traditional);
+            // TODO subsets for hierarchical load balancing?
+            List<IPv4AddressWithMask> prefixes = IPUtils.nonOverlappingPrefixes(range.getMin(), range.getMax());
+            MessageBuilder.addTraditionalLoadBalancingControllerFlows(dpid, factory, vip, prefixes)
+                    .forEach(iofSwitch::write);
+        }
+
+        // Install initial non-uniform load balancing flows
+        if (config.getStrategyRanges().containsKey(non_uniform)) {
+            // TODO merge delete and add
+            MessageBuilder.deleteLoadBalancingFlows(dpid, factory)
+                    .forEach(iofSwitch::write);
+            MessageBuilder.addLoadBalancingFlows(dpid, factory, dVips.get(dpid), lbFlows.get(dpid))
+                    .forEach(iofSwitch::write);
+        }
+
+        // Add forwarding flows
+        MessageBuilder.addForwardingFlows(dpid, factory, calculateForwardingFlows(dpid))
+                .forEach(iofSwitch::write);
     }
 
     private List<IOFSwitch> getActiveManagedSwitches() {

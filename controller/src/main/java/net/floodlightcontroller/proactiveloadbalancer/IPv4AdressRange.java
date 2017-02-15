@@ -8,7 +8,7 @@ import org.projectfloodlight.openflow.types.IPv4Address;
 
 import java.util.Objects;
 
-class StrategyRange {
+class IPv4AdressRange {
 
     @JsonProperty
     @JsonSerialize(using = ToStringSerializer.class)
@@ -20,9 +20,6 @@ class StrategyRange {
     @JsonDeserialize(using = IPv4AddressDeserializer.class)
     private IPv4Address max;
 
-    @JsonProperty
-    private Strategy strategy;
-
     public IPv4Address getMin() {
         return min;
     }
@@ -31,22 +28,17 @@ class StrategyRange {
         return max;
     }
 
-    public Strategy getStrategy() {
-        return strategy;
-    }
-
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
-        StrategyRange that = (StrategyRange) o;
+        IPv4AdressRange that = (IPv4AdressRange) o;
         return Objects.equals(min, that.min) &&
-                Objects.equals(max, that.max) &&
-                strategy == that.strategy;
+                Objects.equals(max, that.max);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(min, max, strategy);
+        return Objects.hash(min, max);
     }
 }

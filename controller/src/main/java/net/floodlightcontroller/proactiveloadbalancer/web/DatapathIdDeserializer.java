@@ -1,4 +1,4 @@
-package net.floodlightcontroller.proactiveloadbalancer;
+package net.floodlightcontroller.proactiveloadbalancer.web;
 
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -9,11 +9,11 @@ import org.projectfloodlight.openflow.types.DatapathId;
 
 import java.io.IOException;
 
-public class DatapathIdDeserializer extends StdDeserializer<DatapathId> {
+class DatapathIdDeserializer extends StdDeserializer<DatapathId> {
 
     private static final long serialVersionUID = 1L;
 
-    public DatapathIdDeserializer() {
+    DatapathIdDeserializer() {
         super(DatapathId.class);
     }
 
