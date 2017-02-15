@@ -1,6 +1,5 @@
 package net.floodlightcontroller.proactiveloadbalancer;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
@@ -14,28 +13,20 @@ import java.util.Set;
 
 class Bridge {
 
+    @JsonProperty
+    @JsonSerialize(using = ToStringSerializer.class)
+    @JsonDeserialize(using = DatapathIdDeserializer.class)
     private DatapathId dpid;
-    private Set<DatapathId> upstreamBridges;
-    private Set<IPv4Address> upstreamHosts;
 
-    @JsonCreator
-    public Bridge(
-            @JsonProperty("dpid")
-            @JsonSerialize(using = ToStringSerializer.class)
-            @JsonDeserialize(using = DatapathIdDeserializer.class)
-                    DatapathId dpid,
-            @JsonProperty("upstreamBridges")
-            @JsonSerialize(contentUsing = ToStringSerializer.class)
-            @JsonDeserialize(contentUsing = DatapathIdDeserializer.class)
-                    Set<DatapathId> upstreamBridges,
-            @JsonProperty("upstreamHosts")
-            @JsonSerialize(contentUsing = ToStringSerializer.class)
-            @JsonDeserialize(contentUsing = IPv4AddressDeserializer.class)
-                    Set<IPv4Address> upstreamHosts) {
-        this.dpid = dpid;
-        this.upstreamBridges = upstreamBridges != null ? upstreamBridges : Collections.emptySet();
-        this.upstreamHosts = upstreamHosts != null ? upstreamHosts : Collections.emptySet();
-    }
+    @JsonProperty
+    @JsonSerialize(contentUsing = ToStringSerializer.class)
+    @JsonDeserialize(contentUsing = DatapathIdDeserializer.class)
+    private Set<DatapathId> upstreamBridges = Collections.emptySet();
+
+    @JsonProperty
+    @JsonSerialize(contentUsing = ToStringSerializer.class)
+    @JsonDeserialize(contentUsing = IPv4AddressDeserializer.class)
+    private Set<IPv4Address> upstreamHosts = Collections.emptySet();
 
     public DatapathId getDpid() {
         return dpid;

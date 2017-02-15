@@ -1,6 +1,5 @@
 package net.floodlightcontroller.proactiveloadbalancer;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
@@ -11,17 +10,15 @@ import java.util.Objects;
 
 class ForwardingFlow {
 
+    @JsonProperty
+    @JsonSerialize(using = ToStringSerializer.class)
+    @JsonDeserialize(using = IPv4AddressWithMaskDeserializer.class)
     private IPv4AddressWithMask prefix;
+
+    @JsonProperty
     private int port;
 
-    @JsonCreator
-    public ForwardingFlow(
-            @JsonProperty("prefix")
-            @JsonSerialize(using = ToStringSerializer.class)
-            @JsonDeserialize(using = IPv4AddressWithMaskDeserializer.class)
-                    IPv4AddressWithMask prefix,
-            @JsonProperty("port")
-                    int port) {
+    ForwardingFlow(IPv4AddressWithMask prefix, int port) {
         this.prefix = prefix;
         this.port = port;
     }
@@ -50,6 +47,6 @@ class ForwardingFlow {
 
     @Override
     public String toString() {
-        return "FwdFlow [prefix=" + prefix + ", port=" + port + "]";
+        return "Fwd Flow [prefix=" + prefix + ", port=" + port + "]";
     }
 }

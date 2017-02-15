@@ -1,6 +1,5 @@
 package net.floodlightcontroller.proactiveloadbalancer;
 
-import org.projectfloodlight.openflow.types.IPv4Address;
 import org.projectfloodlight.openflow.types.IPv4AddressWithMask;
 
 import java.util.Collection;
@@ -115,8 +114,16 @@ class PrefixTrie<T> {
         }
 
         void expand(T value0, T value1) {
+            expand0(value0);
+            expand1(value1);
+        }
+
+        void expand0(T value0) {
             child0 = Node.with(value0);
             child0.parent = this;
+        }
+
+        void expand1(T value1) {
             child1 = Node.with(value1);
             child1.parent = this;
         }
@@ -129,22 +136,20 @@ class PrefixTrie<T> {
         }
 
         private void traverse(IPv4AddressWithMask prefix,
-                              BiConsumer<Node<T>, IPv4AddressWithMask> preOrderVisitor,
-                              BiConsumer<Node<T>, IPv4AddressWithMask> inOrderVisitor,
-                              BiConsumer<Node<T>, IPv4AddressWithMask> postOrderVisitor) {
+                BiConsumer<Node<T>, IPv4AddressWithMask> preOrderVisitor,
+                BiConsumer<Node<T>, IPv4AddressWithMask> inOrderVisitor,
+                BiConsumer<Node<T>, IPv4AddressWithMask> postOrderVisitor) {
             if (preOrderVisitor != null) {
                 preOrderVisitor.accept(this, prefix);
             }
             if (child0 != null) {
-                int mask = prefix.getMask().getInt();
-                child0.traverse(IPv4Address.of(prefix.getValue().getInt()).withMask(IPv4Address.of(mask >> 1)), preOrderVisitor, inOrderVisitor, postOrderVisitor);
+                child0.traverse(IPUtils.subprefix0(prefix), preOrderVisitor, inOrderVisitor, postOrderVisitor);
             }
             if (inOrderVisitor != null) {
                 inOrderVisitor.accept(this, prefix);
             }
             if (child1 != null) {
-                int mask = prefix.getMask().getInt();
-                child0.traverse(IPv4Address.of(prefix.getValue().getInt() | ~mask).withMask(IPv4Address.of(mask >> 1)), preOrderVisitor, inOrderVisitor, postOrderVisitor);
+                child0.traverse(IPUtils.subprefix1(prefix), preOrderVisitor, inOrderVisitor, postOrderVisitor);
             }
             if (postOrderVisitor != null) {
                 postOrderVisitor.accept(this, prefix);

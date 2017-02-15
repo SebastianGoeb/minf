@@ -9,11 +9,11 @@ import org.projectfloodlight.openflow.types.IPv4Address;
 
 import java.io.IOException;
 
-class IPv4AddressDeserializer extends StdDeserializer<IPv4Address> {
+public class IPv4AddressDeserializer extends StdDeserializer<IPv4Address> {
 
 	private static final long serialVersionUID = 1L;
 
-	IPv4AddressDeserializer() {
+	public IPv4AddressDeserializer() {
 		super(IPv4Address.class);
 	}
 

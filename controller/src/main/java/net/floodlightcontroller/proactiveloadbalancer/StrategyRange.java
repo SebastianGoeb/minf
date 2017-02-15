@@ -10,28 +10,18 @@ import java.util.Objects;
 
 class StrategyRange {
 
+    @JsonProperty
+    @JsonSerialize(using = ToStringSerializer.class)
+    @JsonDeserialize(using = IPv4AddressDeserializer.class)
     private IPv4Address min;
-    private IPv4Address max;
-    private Strategy strategy;
 
-    public StrategyRange(
-            @JsonProperty("min")
-            @JsonSerialize(using = ToStringSerializer.class)
-            @JsonDeserialize(using = IPv4AddressDeserializer.class)
-                    IPv4Address min,
-            @JsonProperty("max")
-            @JsonSerialize(using = ToStringSerializer.class)
-            @JsonDeserialize(using = IPv4AddressDeserializer.class)
-                    IPv4Address max,
-            @JsonProperty("strategy")
-                    Strategy strategy) {
-        Objects.requireNonNull(min);
-        Objects.requireNonNull(max);
-        Objects.requireNonNull(strategy);
-        this.min = min;
-        this.max = max;
-        this.strategy = strategy;
-    }
+    @JsonProperty
+    @JsonSerialize(using = ToStringSerializer.class)
+    @JsonDeserialize(using = IPv4AddressDeserializer.class)
+    private IPv4Address max;
+
+    @JsonProperty
+    private Strategy strategy;
 
     public IPv4Address getMin() {
         return min;

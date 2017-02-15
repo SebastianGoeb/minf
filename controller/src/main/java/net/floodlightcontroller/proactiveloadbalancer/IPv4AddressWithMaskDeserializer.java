@@ -10,11 +10,11 @@ import org.projectfloodlight.openflow.types.IPv4AddressWithMask;
 
 import java.io.IOException;
 
-class IPv4AddressWithMaskDeserializer extends StdDeserializer<IPv4AddressWithMask> {
+public class IPv4AddressWithMaskDeserializer extends StdDeserializer<IPv4AddressWithMask> {
 
 	private static final long serialVersionUID = 1L;
 
-	IPv4AddressWithMaskDeserializer() {
+	public IPv4AddressWithMaskDeserializer() {
 		super(IPv4Address.class);
 	}
 

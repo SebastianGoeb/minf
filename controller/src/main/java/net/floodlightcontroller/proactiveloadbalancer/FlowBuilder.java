@@ -5,20 +5,21 @@ import org.projectfloodlight.openflow.types.IPv4Address;
 import org.projectfloodlight.openflow.types.IPv4AddressWithMask;
 
 import java.util.*;
-import java.util.stream.Collectors;
+
+import static java.util.stream.Collectors.toList;
 
 class FlowBuilder {
 
-	static Set<LoadBalancingFlow> buildFlowsUniform(Topology topology, Set<LoadBalancingFlow> flows) {
+	static Set<LoadBalancingFlow> buildFlowsUniform(Map<IPv4Address, Double> weights, IPv4AddressWithMask clientRange, Topology topology, Set<LoadBalancingFlow> flows) {
 		// sort dips
-		List<Host> sortedHosts = Ordering.from(Comparator.comparing(Host::getDip)).immutableSortedCopy(topology.getHosts());
+		List<IPv4Address> sortedServers = Ordering.natural().immutableSortedCopy(topology.getServers());
 
 		// scale weights to int values summing to next power of 2
-		int bits = sortedHosts.size() == 0 ? 0 : 32 - Integer.numberOfLeadingZeros(sortedHosts.size() - 1);
-		List<Double> weights = sortedHosts.stream()
-                .map(h -> h.getWeight())
-				.collect(Collectors.toList());
-		List<Integer> scaledWeights = FlowBuilder.scaleWeights(weights,1 << bits);
+		int bits = sortedServers.size() == 0 ? 0 : 32 - Integer.numberOfLeadingZeros(sortedServers.size() - 1);
+		List<Double> sortedWeights = sortedServers.stream()
+                .map(server -> weights.get(server))
+				.collect(toList());
+		List<Integer> scaledWeights = FlowBuilder.scaleWeights(sortedWeights,1 << bits);
 
 		// Split weights into powers of 2
 		List<IPv4Address> splitDips = new ArrayList<>();
@@ -28,16 +29,16 @@ class FlowBuilder {
 			for (int j = 1; j <= weight; j <<= 1) {
 				if ((j & weight) != 0) {
 					splitWeights.add(j);
-					splitDips.add(sortedHosts.get(i).getDip());
+					splitDips.add(sortedServers.get(i));
 				}
 			}
 		}
 
 		// Turn into prefixes
 		Set<LoadBalancingFlow> newFlows = new LinkedHashSet<>();
-		int valueIncrement = Integer.MIN_VALUE >>> (ProactiveLoadBalancer.CLIENT_RANGE.getMask().asCidrMaskLength() + bits - 1);
-		int value = ProactiveLoadBalancer.CLIENT_RANGE.getValue().getInt();
-		int mask = IPv4Address.ofCidrMaskLength((ProactiveLoadBalancer.CLIENT_RANGE.getMask().asCidrMaskLength() + bits)).getInt();
+		int valueIncrement = Integer.MIN_VALUE >>> (clientRange.getMask().asCidrMaskLength() + bits - 1);
+		int value = clientRange.getValue().getInt();
+		int mask = IPv4Address.ofCidrMaskLength((clientRange.getMask().asCidrMaskLength() + bits)).getInt();
 		for (int i = 0; i < splitWeights.size(); i++) {
 			int weight = splitWeights.get(i);
 			IPv4AddressWithMask prefix = IPv4Address.of(value).withMask(IPv4Address.of(mask * weight));

@@ -1,44 +1,52 @@
 package net.floodlightcontroller.proactiveloadbalancer;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.StdKeySerializer;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
+import org.projectfloodlight.openflow.types.DatapathId;
+import org.projectfloodlight.openflow.types.IPv4Address;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 
 public class Topology {
 
-    private Set<Bridge> bridges;
-    private Set<Host> hosts;
-    private List<ForwardingFlow> forwardingFlows;
+    @JsonProperty
+    @JsonSerialize(contentUsing = ToStringSerializer.class)
+    private List<IPv4Address> servers;
+    @JsonProperty
+    @JsonSerialize(contentUsing = ToStringSerializer.class)
+    private List<DatapathId> switches;
+    @JsonProperty
+    @JsonSerialize(keyUsing = StdKeySerializer.class)
+    private Map<DatapathId, Map<IPv4Address, Integer>> downlinksToServers;
+    @JsonProperty
+    @JsonSerialize(keyUsing = StdKeySerializer.class)
+    private Map<DatapathId, Map<DatapathId, Integer>> downlinksToSwitches;
+    @JsonProperty
+    @JsonSerialize(keyUsing = StdKeySerializer.class)
+    private Map<DatapathId, Map<DatapathId, Integer>> uplinksToSwitches;
 
-    @JsonCreator
-    public Topology(
-            @JsonProperty("bridges")
-                    Set<Bridge> bridges,
-            @JsonProperty("hosts")
-                    Set<Host> hosts,
-            @JsonProperty("forwardingFlows")
-                    List<ForwardingFlow> forwardingFlows) {
-        Objects.requireNonNull(bridges);
-        Objects.requireNonNull(hosts);
-        Objects.requireNonNull(forwardingFlows);
-        this.bridges = bridges;
-        this.hosts = hosts;
-        this.forwardingFlows = forwardingFlows;
+    public List<IPv4Address> getServers() {
+        return servers;
     }
 
-    public Set<Bridge> getBridges() {
-        return bridges;
+    public List<DatapathId> getSwitches() {
+        return switches;
     }
 
-    public Set<Host> getHosts() {
-        return hosts;
+    public Map<DatapathId, Map<IPv4Address, Integer>> getDownlinksToServers() {
+        return downlinksToServers;
     }
 
-    public List<ForwardingFlow> getForwardingFlows() {
-        return forwardingFlows;
+    public Map<DatapathId, Map<DatapathId, Integer>> getDownlinksToSwitches() {
+        return downlinksToSwitches;
+    }
+
+    public Map<DatapathId, Map<DatapathId, Integer>> getUplinksToSwitches() {
+        return uplinksToSwitches;
     }
 
     @Override
@@ -46,12 +54,14 @@ public class Topology {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         Topology topology = (Topology) o;
-        return Objects.equals(bridges, topology.bridges) &&
-                Objects.equals(hosts, topology.hosts);
+        return Objects.equals(servers, topology.servers) &&
+                Objects.equals(switches, topology.switches) &&
+                Objects.equals(downlinksToServers, topology.downlinksToServers) &&
+                Objects.equals(downlinksToSwitches, topology.downlinksToSwitches);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(bridges, hosts);
+        return Objects.hash(servers, switches, downlinksToServers, downlinksToSwitches);
     }
 }

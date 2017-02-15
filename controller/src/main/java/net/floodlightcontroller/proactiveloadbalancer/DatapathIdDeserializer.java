@@ -9,11 +9,11 @@ import org.projectfloodlight.openflow.types.DatapathId;
 
 import java.io.IOException;
 
-class DatapathIdDeserializer extends StdDeserializer<DatapathId> {
+public class DatapathIdDeserializer extends StdDeserializer<DatapathId> {
 
     private static final long serialVersionUID = 1L;
 
-    DatapathIdDeserializer() {
+    public DatapathIdDeserializer() {
         super(DatapathId.class);
     }
 

@@ -10,13 +10,11 @@ import net.floodlightcontroller.core.module.FloodlightModuleContext;
 import net.floodlightcontroller.core.module.FloodlightModuleException;
 import net.floodlightcontroller.core.module.IFloodlightModule;
 import net.floodlightcontroller.core.module.IFloodlightService;
-import net.floodlightcontroller.linkdiscovery.Link;
 import net.floodlightcontroller.packet.Ethernet;
 import net.floodlightcontroller.packet.IPv4;
 import net.floodlightcontroller.proactiveloadbalancer.web.ProactiveLoadBalancerWebRoutable;
 import net.floodlightcontroller.restserver.IRestApiService;
 import net.floodlightcontroller.threadpool.IThreadPoolService;
-import net.floodlightcontroller.topology.ITopologyService;
 import org.projectfloodlight.openflow.protocol.*;
 import org.projectfloodlight.openflow.protocol.match.Match;
 import org.projectfloodlight.openflow.protocol.match.MatchField;
@@ -28,8 +26,10 @@ import java.util.*;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 
 import static java.util.Comparator.comparing;
+import static java.util.Comparator.naturalOrder;
 import static java.util.stream.Collectors.groupingBy;
 import static java.util.stream.Collectors.toList;
 
@@ -38,23 +38,19 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
 
     private static final Logger LOG = LoggerFactory.getLogger(ProactiveLoadBalancer.class);
 
-    // Contants
-    // TODO configurable?
-    static final IPv4AddressWithMask CLIENT_RANGE = IPv4AddressWithMask.of("10.0.0.0/8");
-    private static final IPv4AddressWithMask VIP_RANGE = IPv4AddressWithMask.of("10.5.2.0/24");
-    private static final long MEASUREMENT_INTERVAL = 60; // 1 minute
-    private static final double RELATIVE_THRESHOLD = 0.1; // 10% of total traffic
-
     // Services
     private IFloodlightProviderService floodlightProvider;
     private IOFSwitchService switchManager;
     private IRestApiService restApiService;
     private IThreadPoolService threadPoolService;
-    private ITopologyService topologyService;
 
     // Config
     private Config config = null;
-    private Map<DatapathId, IPv4Address> intermediateVips = new HashMap<>();
+
+    // Derived config
+    private Map<DatapathId, IPv4Address> dVips = new HashMap<>();
+    private IPv4Address clientMin;
+    private IPv4Address clientMax;
 
     // Traffic measurement information
     private ScheduledFuture<?> collectionFuture;
@@ -159,12 +155,9 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
 
     private void handlePacketTraditional(IPv4 ipv4) {
         // pick server (random)
-        Random random = new Random();
-        Host server = config.getTopology().getHosts().stream()
-                .skip(random.nextInt(config.getTopology().getHosts().size()))
-                .findFirst()
-                .orElse(null);
-        LoadBalancingFlow flow = new LoadBalancingFlow(ipv4.getSourceAddress().withMaskOfLength(32), server.getDip());
+        int rand = new Random().nextInt(config.getTopology().getServers().size());
+        IPv4Address dip = config.getTopology().getServers().get(rand);
+        LoadBalancingFlow flow = new LoadBalancingFlow(ipv4.getSourceAddress().withMaskOfLength(32), dip);
 
         // install rule from src,vip to server
         // TODO don't install on all switches
@@ -172,7 +165,7 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
         for (IOFSwitch iofSwitch : getActiveManagedSwitches()) {
             DatapathId dpid = iofSwitch.getId();
             OFFactory factory = iofSwitch.getOFFactory();
-            IPv4Address vip = intermediateVips.get(dpid);
+            IPv4Address vip = dVips.get(dpid);
             MessageBuilder.addTraditionalLoadBalancingFlow(dpid, factory, vip, flow)
                     .forEach(iofSwitch::write);
         }
@@ -194,7 +187,7 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
     @Override
     public Collection<Class<? extends IFloodlightService>> getModuleDependencies() {
         return ImmutableList.of(IFloodlightProviderService.class, IOFSwitchService.class, IRestApiService.class,
-                IThreadPoolService.class, ITopologyService.class);
+                IThreadPoolService.class);
     }
 
     @Override
@@ -203,7 +196,6 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
         switchManager = context.getServiceImpl(IOFSwitchService.class);
         restApiService = context.getServiceImpl(IRestApiService.class);
         threadPoolService = context.getServiceImpl(IThreadPoolService.class);
-        topologyService = context.getServiceImpl(ITopologyService.class);
     }
 
     @Override
@@ -226,11 +218,9 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
     @Override
     public void switchActivated(DatapathId dpid) {
         if (config != null) {
-            boolean switchIsManaged = config.getTopology()
-                    .getBridges().stream()
-                    .anyMatch(bridge -> bridge.getDpid().equals(dpid));
-            if (switchIsManaged) {
+            if (config.getTopology().getSwitches().contains(dpid)) {
                 LOG.info("Setting up switch {}", dpid);
+                // TODO
 //                setupSwitch(dpid);
             }
         }
@@ -309,17 +299,26 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
 //            }
 
             // TODO assign vips
-            for (Bridge bridge : config.getTopology().getBridges()) {
-                intermediateVips.put(bridge.getDpid(), IPv4Address.of(VIP_RANGE.getValue().getInt() + (int) bridge.getDpid().getLong()));
+            for (DatapathId dpid : config.getTopology().getSwitches()) {
+                IPv4Address dVip = IPv4Address.of(config.getdVipRange().getValue().getInt() + (int) dpid.getLong());
+                dVips.put(dpid, dVip);
             }
 
-            Map<DatapathId, Set<Link>> allLinks = topologyService.getAllLinks();
+            // Calculate min, max
+            clientMin = config.getStrategyRanges().stream()
+                    .flatMap(range -> Stream.of(range.getMin(), range.getMax()))
+                    .min(naturalOrder())
+                    .orElse(null);
+            clientMax = config.getStrategyRanges().stream()
+                    .flatMap(range -> Stream.of(range.getMin(), range.getMax()))
+                    .max(naturalOrder())
+                    .orElse(null);
+
             // Install flows
             getActiveManagedSwitches().forEach(iofSwitch -> {
                 DatapathId dpid = iofSwitch.getId();
                 OFFactory factory = iofSwitch.getOFFactory();
-                Topology topology = config.getTopology();
-                IPv4Address vip = intermediateVips.get(dpid);
+                IPv4Address vip = dVips.get(dpid);
 
                 // Add stub flows
                 MessageBuilder.addStubFlows(dpid, factory, vip)
@@ -369,24 +368,21 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
 
                 // Add forwarding flows
                 List<ForwardingFlow> forwardingFlows = new ArrayList<>();
-                if (allLinks.containsKey(dpid)) {
-                    for (Link link : allLinks.get(dpid)) {
-                        if (!Objects.equals(link.getDst(), dpid) && intermediateVips.containsKey(link.getDst())) {
-                            forwardingFlows.add(new ForwardingFlow(intermediateVips.get(link.getDst()).withMask(
-                                    IPv4Address.NO_MASK), link.getSrcPort().getPortNumber()));
-                        }
-                    }
-                }
-                Bridge bridge = topology.getBridges().stream().filter(br -> br.getDpid().equals(dpid)).findFirst().orElse(null);
-                for (IPv4Address dip : bridge.getUpstreamHosts()) {
-                    IPv4AddressWithMask prefix = dip.withMask(IPv4Address.NO_MASK);
-                    forwardingFlows.add(new ForwardingFlow(prefix, topology.getForwardingFlows().stream()
-                            .filter(flow -> flow.getPrefix().equals(prefix))
-                            .findFirst()
-                            .orElse(null)
-                            .getPort()));
-                }
-                forwardingFlows.add(new ForwardingFlow(CLIENT_RANGE, 1)); // TODO use proper port number, from dependents
+                // Downlinks to switches
+                config.getTopology().getDownlinksToSwitches().get(dpid).forEach((downstreamDpid, portno) -> {
+                    IPv4AddressWithMask prefix = dVips.get(downstreamDpid).withMaskOfLength(32);
+                    forwardingFlows.add(new ForwardingFlow(prefix, portno));
+                });
+                // Downlinks to servers
+                config.getTopology().getDownlinksToServers().get(dpid).forEach((dip, portno) -> {
+                    IPv4AddressWithMask prefix = dip.withMaskOfLength(32);
+                    forwardingFlows.add(new ForwardingFlow(prefix, portno));
+                });
+                // Uplinks to switches
+                config.getTopology().getUplinksToSwitches().get(dpid).forEach((upstreamDpid, portno) -> {
+                    IPv4AddressWithMask prefix = IPUtils.base(clientMin, clientMax);
+                    forwardingFlows.add(new ForwardingFlow(prefix, portno));
+                });
                 MessageBuilder.addForwardingFlows(dpid, factory, forwardingFlows)
                         .forEach(iofSwitch::write);
             });
@@ -415,7 +411,7 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
                             writeLoadBalancingFlows(lbFlows);
                     }
                 }
-            }, 0, MEASUREMENT_INTERVAL, TimeUnit.SECONDS);
+            }, config.getMeasurementInterval(), config.getMeasurementInterval(), TimeUnit.SECONDS);
         }
     }
 
@@ -439,9 +435,9 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
             tree.traversePreOrder((node, prefix) -> {
                 if (node.isRoot()) {
                     node.expand(node.getValue() / 2, node.getValue() / 2);
-                } else if (node.getValue() > RELATIVE_THRESHOLD && node.isLeaf() && prefix.getMask().asCidrMaskLength() < 32) {
+                } else if (node.getValue() > config.getMeasurementThreshold() && node.isLeaf() && prefix.getMask().asCidrMaskLength() < 32) {
                     node.expand(node.getValue() / 2, node.getValue() / 2);
-                } else if (node.getValue() < RELATIVE_THRESHOLD && !node.isLeaf() && !node.isRoot()) {
+                } else if (node.getValue() < config.getMeasurementThreshold() && !node.isLeaf() && !node.isRoot()) {
                     node.collapse();
                 }
             });
@@ -471,14 +467,14 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
         });
     }
 
-    private static PrefixTrie<Double> mergeMeasurements(Collection<Measurement> measurements) {
+    private PrefixTrie<Double> mergeMeasurements(Collection<Measurement> measurements) {
         Objects.requireNonNull(measurements);
 
         double total = measurements.stream()
                 .mapToLong(Measurement::getBytes)
                 .sum();
 
-        PrefixTrie<Double> tree = PrefixTrie.empty(CLIENT_RANGE, 0D);
+        PrefixTrie<Double> tree = PrefixTrie.empty(IPUtils.base(clientMin, clientMax), 0D);
         Queue<Measurement> measurementsInPreOrder = new PriorityQueue<>(comparing(Measurement::getPrefix));
         measurementsInPreOrder.addAll(measurements);
 
@@ -491,38 +487,45 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
                 nextMeasurement = measurementsInPreOrder.peek();
             }
             if (nextMeasurement != null && prefix.contains(nextMeasurement.prefix.getValue())) {
-                node.expand(node.getValue() / 2, node.getValue() / 2);
+                IPv4Address minOfRightSubtree = IPUtils.min(IPUtils.subprefix1(prefix));
+                IPv4Address maxOfLeftSubtree = IPUtils.max(IPUtils.subprefix0(prefix));
+                if (minOfRightSubtree.compareTo(clientMin) <= 0) { // Left subtree (0) not relevant
+                    node.expand1(node.getValue());
+                } else if (clientMax.compareTo(maxOfLeftSubtree) <= 0) { // Right subtree (1) not relevant
+                    node.expand0(node.getValue());
+                } else {
+                    node.expand(node.getValue() / 2, node.getValue() / 2);
+                }
             }
         });
         // Propagate measurements up
         tree.traversePostOrder((node, prefix) -> {
             if (!node.isLeaf()) {
-                node.setValue(node.getChild0().getValue() + node.getChild1().getValue());
+                double val = 0;
+                if (node.getChild0() != null) {
+                    val += node.getChild0().getValue();
+                }
+                if (node.getChild1() != null) {
+                    val += node.getChild1().getValue();
+                }
+                node.setValue(val);
             }
         });
         return tree;
     }
 
     private Map<DatapathId, List<LoadBalancingFlow>> updateLoadBalancingFlows(PrefixTrie<Double> measurementTree) {
-        // TODO build flows
-        Set<LoadBalancingFlow> allFlows = FlowBuilder.buildFlowsUniform(config.getTopology(), null);
-
-        // Group flows by dip
-        Map<IPv4Address, List<LoadBalancingFlow>> flowsByDip = allFlows.stream()
-                .collect(groupingBy(LoadBalancingFlow::getDip));
-
         // Topological sort over load balancers (sort by dependency)
         Map<DatapathId, List<DatapathId>> dependencies = new HashMap<>();
         Map<DatapathId, List<DatapathId>> dependents = new HashMap<>();
-        for (Bridge bridge: config.getTopology().getBridges()) {
-            dependencies.put(bridge.getDpid(), new ArrayList<>());
-            dependents.put(bridge.getDpid(), new ArrayList<>());
+        for (DatapathId dpid : config.getTopology().getDownlinksToSwitches().keySet()) {
+            dependencies.put(dpid, new ArrayList<>());
+            dependents.put(dpid, new ArrayList<>());
         }
-        for (Bridge bridge: config.getTopology().getBridges()) {
-            DatapathId downstream = bridge.getDpid();
-            for (DatapathId upstream : bridge.getUpstreamBridges()) {
-                dependencies.get(downstream).add(upstream);
-                dependents.get(upstream).add(downstream);
+        for (DatapathId dependent : config.getTopology().getDownlinksToSwitches().keySet()) {
+            for (DatapathId dependency : config.getTopology().getDownlinksToSwitches().get(dependent).keySet()) {
+                dependencies.get(dependent).add(dependency);
+                dependents.get(dependency).add(dependent);
             }
         }
         List<DatapathId> toposortedDpids = new ArrayList<>();
@@ -543,31 +546,36 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
             dependents.remove(dpid);
         }
 
-        // Calculate upstream flows for load balancers
-        Map<DatapathId, List<LoadBalancingFlow>> upstreamFlows = new HashMap<>();
+        // Build flows
+        // TODO different strats, respect previous flows, etc.
+        Set<LoadBalancingFlow> allFlows = FlowBuilder.buildFlowsUniform(config.getWeights(), IPUtils.base(clientMin, clientMax), config.getTopology(), null);
+
+        // Group flows by dip
+        Map<IPv4Address, List<LoadBalancingFlow>> flowsByDip = allFlows.stream()
+                .collect(groupingBy(LoadBalancingFlow::getDip));
+
+        // Calculate downstream flows for load balancers
+        Map<DatapathId, List<LoadBalancingFlow>> flowsByDpid = new HashMap<>();
         for (DatapathId dpid : toposortedDpids) {
-            Bridge bridge = config.getTopology().getBridges().stream()
-                    .filter(b -> b.getDpid().equals(dpid))
-                    .findFirst()
-                    .orElse(null);
-            Set<IPv4Address> upstreamDips = bridge.getUpstreamHosts();
-            Set<DatapathId> upstreamDpids = bridge.getUpstreamBridges();
-            List<LoadBalancingFlow> flows = new ArrayList<>();
-            for (IPv4Address upstreamDip : upstreamDips) {
-                 flows.addAll(flowsByDip.get(upstreamDip));
+            Map<DatapathId, Integer> switches = config.getTopology().getDownlinksToSwitches().get(dpid);
+            Map<IPv4Address, Integer> servers = config.getTopology().getDownlinksToServers().get(dpid);
+            flowsByDpid.put(dpid, new ArrayList<>());
+            // Add flows to servers
+            for (IPv4Address dip : servers.keySet()) {
+                 flowsByDpid.get(dpid).addAll(flowsByDip.get(dip));
             }
-            for (DatapathId upstreamDpid : upstreamDpids) {
-                IPv4Address upstreamVip = intermediateVips.get(upstreamDpid);
-                flows.addAll(upstreamFlows.get(upstreamDpid).stream()
-                        .map(flow -> new LoadBalancingFlow(flow.getPrefix(), upstreamVip))
+            // Add previously calculated flows to this switch
+            for (DatapathId downstreamDpid : switches.keySet()) {
+                IPv4Address downstreamVip = dVips.get(downstreamDpid);
+                flowsByDpid.get(dpid).addAll(flowsByDpid.get(downstreamDpid).stream()
+                        .map(flow -> new LoadBalancingFlow(flow.getPrefix(), downstreamVip))
                         .collect(toList()));
             }
-            upstreamFlows.put(dpid, flows);
         }
 
         // TODO group flows
 
-        return upstreamFlows;
+        return flowsByDpid;
     }
 
     private void writeLoadBalancingFlows(Map<DatapathId, List<LoadBalancingFlow>> flows) {
@@ -578,7 +586,7 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
             OFFactory factory = iofSwitch.getOFFactory();
             MessageBuilder.deleteLoadBalancingFlows(dpid, factory)
                     .forEach(iofSwitch::write);
-            MessageBuilder.addLoadBalancingFlows(dpid, factory, intermediateVips.get(dpid), flows.get(dpid))
+            MessageBuilder.addLoadBalancingFlows(dpid, factory, dVips.get(dpid), flows.get(dpid))
                     .forEach(iofSwitch::write);
         });
     }
@@ -589,30 +597,29 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
         IPv4Address vip = config.getVip();
         Topology topology = config.getTopology();
 
-        // Add stub flows
-        MessageBuilder.addStubFlows(dpid, factory, vip)
-                .forEach(ofSwitch::write);
-
-        // Add measurement fallback flows
-        MessageBuilder.addFallbackFlows(dpid, factory)
-                .forEach(ofSwitch::write);
-
-        // Add measurement flows
+//        // Add stub flows
+//        MessageBuilder.addStubFlows(dpid, factory, vip)
+//                .forEach(ofSwitch::write);
+//
+//        // Add measurement fallback flows
+//        MessageBuilder.addFallbackFlows(dpid, factory)
+//                .forEach(ofSwitch::write);
+//
+//        // Add measurement flows
 //        MessageBuilder.addMeasurementFlows(dpid, factory, measurements.get(dpid))
 //                .forEach(ofSwitch::write);
 //
 //        // Add load balancing flows
 //        MessageBuilder.addLoadBalancingFlows(dpid, factory, vip, flows.get(dpid))
 //                .forEach(ofSwitch::write);
-
-        // Add forwarding flows
-        MessageBuilder.addForwardingFlows(dpid, factory, topology.getForwardingFlows())
-                .forEach(ofSwitch::write);
+//
+//        // Add forwarding flows
+//        MessageBuilder.addForwardingFlows(dpid, factory, topology.getForwardingFlows())
+//                .forEach(ofSwitch::write);
     }
 
     private List<IOFSwitch> getActiveManagedSwitches() {
-        return config.getTopology().getBridges().stream()
-                .map(bridge -> bridge.getDpid())
+        return config.getTopology().getSwitches().stream()
                 .map(dpid -> switchManager.getActiveSwitch(dpid))
                 .filter(ofSwitch -> ofSwitch != null)
                 .collect(toList());
