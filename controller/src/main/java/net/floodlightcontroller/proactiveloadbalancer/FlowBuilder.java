@@ -49,9 +49,9 @@ class FlowBuilder {
 		return newFlows;
 	}
 
-	static Set<LoadBalancingFlow> buildFlowsGreedy(Topology topology, Set<LoadBalancingFlow> flows, PrefixTrie<Long> traffic) {
-	    // TODO
-        return Collections.emptySet();
+	static Set<LoadBalancingFlow> buildFlowsGreedy(Map<IPv4Address, Double> weights, IPv4AddressWithMask clientRange, Topology topology, Set<LoadBalancingFlow> flows, PrefixTrie<Double> traffic) {
+	    // TODO don't defer to uniform algorithm
+        return buildFlowsUniform(weights, clientRange, topology, flows);
 	}
 
 	private static List<Integer> scaleWeights(List<Double> weights, double total) {

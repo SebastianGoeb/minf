@@ -1,9 +1,10 @@
 package net.floodlightcontroller.proactiveloadbalancer;
 
+import com.google.common.primitives.UnsignedInts;
 import org.projectfloodlight.openflow.types.IPv4Address;
 import org.projectfloodlight.openflow.types.IPv4AddressWithMask;
 
-import java.util.Objects;
+import java.util.*;
 
 public class IPUtils {
     public static IPv4Address max (IPv4AddressWithMask prefix) {
@@ -39,5 +40,29 @@ public class IPUtils {
     public static IPv4AddressWithMask subprefix1(IPv4AddressWithMask prefix) {
         return prefix.getValue().or(prefix.getMask().not())
                 .withMaskOfLength(prefix.getMask().asCidrMaskLength() + 1);
+    }
+
+    public static List<IPv4AddressWithMask> nonOverlappingPrefixes(IPv4Address minAddress, IPv4Address maxAddress) {
+        int rangeMin = minAddress.getInt();
+        int rangeMax = maxAddress.getInt();
+        List<IPv4AddressWithMask> prefixes = new ArrayList<>();
+        Queue<IPv4AddressWithMask> queue = new PriorityQueue<>();
+        queue.add(IPv4AddressWithMask.of("0.0.0.0/0"));
+        while(!queue.isEmpty()) {
+            IPv4AddressWithMask prefix = queue.poll();
+            int min = prefix.getValue().getInt();
+            int max = prefix.getValue().or(prefix.getMask().not()).getInt();
+            boolean inside = UnsignedInts.compare(rangeMin, min) <= 0 && UnsignedInts.compare(max, rangeMax) <= 0;
+            boolean outside = UnsignedInts.compare(max, rangeMin) < 0 || UnsignedInts.compare(rangeMax, min) < 0;
+            if (inside) {
+                // Contained, save
+                prefixes.add(prefix);
+            } else if (!outside) {
+                // Too large, split
+                queue.add(IPv4Address.of(min).withMaskOfLength(prefix.getMask().asCidrMaskLength() + 1));
+                queue.add(IPv4Address.of(max).withMaskOfLength(prefix.getMask().asCidrMaskLength() + 1));
+            }
+        }
+        return prefixes;
     }
 }
