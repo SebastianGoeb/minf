@@ -1,5 +1,6 @@
 package net.floodlightcontroller.proactiveloadbalancer;
 
+import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import net.floodlightcontroller.core.*;
@@ -31,9 +32,7 @@ import static java.util.Comparator.comparing;
 import static java.util.Comparator.naturalOrder;
 import static java.util.stream.Collectors.groupingBy;
 import static java.util.stream.Collectors.toList;
-import static net.floodlightcontroller.proactiveloadbalancer.Strategy.non_uniform;
-import static net.floodlightcontroller.proactiveloadbalancer.Strategy.traditional;
-import static net.floodlightcontroller.proactiveloadbalancer.Strategy.uniform;
+import static net.floodlightcontroller.proactiveloadbalancer.Strategy.*;
 
 public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListener, IOFSwitchListener,
         IProactiveLoadBalancerService {
@@ -391,7 +390,10 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
     private Map<DatapathId, Collection<Measurement>> readMeasurements() {
         Map<DatapathId, Collection<Measurement>> measurements = new HashMap<>();
         for (IOFSwitch iofSwitch : getActiveManagedSwitches()) {
-            measurements.put(iofSwitch.getId(), getByteCounts(iofSwitch));
+            DatapathId dpid = iofSwitch.getId();
+            List<Measurement> byteCounts = getByteCounts(iofSwitch);
+            measurements.put(dpid, byteCounts);
+            LOG.info("Measurements {}: [{}]", dpid, Joiner.on(", ").join(byteCounts));
         }
         return measurements;
     }
@@ -554,6 +556,8 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
         MessageBuilder.addLoadBalancingEgressFlows(dpid, factory, vip)
                 .forEach(iofSwitch::write);
 
+        updateAndWriteMsmtFlows();
+
         // Install uniform load balancer flows
         if (config.getStrategyRanges().containsKey(uniform)) {
             // TODO use proper uniform method
@@ -606,6 +610,11 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
 
         private long getBytes() {
             return bytes;
+        }
+
+        @Override
+        public String toString() {
+            return "{" + prefix + ": " + bytes + "B}";
         }
     }
 }
