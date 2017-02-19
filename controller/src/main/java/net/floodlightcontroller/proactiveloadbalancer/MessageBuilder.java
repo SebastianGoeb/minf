@@ -1,6 +1,9 @@
 package net.floodlightcontroller.proactiveloadbalancer;
 
+import net.floodlightcontroller.proactiveloadbalancer.domain.ForwardingFlow;
+import net.floodlightcontroller.proactiveloadbalancer.domain.LoadBalancingFlow;
 import org.projectfloodlight.openflow.protocol.OFFactory;
+import org.projectfloodlight.openflow.protocol.OFFlowAdd.Builder;
 import org.projectfloodlight.openflow.protocol.OFFlowMod;
 import org.projectfloodlight.openflow.protocol.OFFlowStatsRequest;
 import org.projectfloodlight.openflow.protocol.action.OFAction;
@@ -13,6 +16,8 @@ import org.projectfloodlight.openflow.protocol.oxm.OFOxms;
 import org.projectfloodlight.openflow.types.*;
 
 import java.util.*;
+
+import static java.util.Collections.singletonList;
 
 class MessageBuilder {
 
@@ -99,6 +104,18 @@ class MessageBuilder {
         return TableId.of(getBaseTableId(dpid) + FORWARDING_TABLE_ID_OFFSET);
     }
 
+    // Deletion
+    static List<OFFlowMod> deleteAllFlows(DatapathId dpid, OFFactory factory) {
+        // Preconditions
+        Objects.requireNonNull(dpid);
+        Objects.requireNonNull(factory);
+
+        return singletonList(factory
+                .buildFlowDelete()
+                .setTableId(TableId.ALL)
+                .build());
+    }
+
     // Stub
     static List<OFFlowMod> addStubFlows(DatapathId dpid, OFFactory factory, IPv4Address vip) {
         // Preconditions
@@ -114,7 +131,6 @@ class MessageBuilder {
         TableId ingressMeasurementTableId = getIngressMeasurementTableId(dpid);
         TableId loadBalancingTableId = getLoadBalancingTableId(dpid);
 
-        // Add stub flows
         List<OFFlowMod> flowMods = new LinkedList<>();
 
         // Ingress
@@ -124,368 +140,41 @@ class MessageBuilder {
                 .setExact(MatchField.IPV4_DST, vip)
                 .build();
 
-        flowMods.add(factory
-                .buildFlowAdd()
-                .setTableId(stubTableId)
-                .setPriority(INGRESS_PRIORITY + IPv4Address.FULL_MASK.asCidrMaskLength())
-                .setMatch(ingressMatch)
-                .setInstructions(Collections.singletonList(instructions.gotoTable(ingressMeasurementTableId)))
-                .build());
-
-        // Egress
-        Match egressMatch = factory
-                .buildMatch()
-                .setExact(MatchField.ETH_TYPE, EthType.IPv4)
-                .build();
+        // Instructions
+        List<OFInstruction> ingressInstructionList = singletonList(
+                instructions.gotoTable(ingressMeasurementTableId));
 
         flowMods.add(factory
                 .buildFlowAdd()
                 .setTableId(stubTableId)
-                .setPriority(EGRESS_PRIORITY + IPv4Address.FULL_MASK.asCidrMaskLength())
-                .setMatch(egressMatch)
-                .setInstructions(Collections.singletonList(instructions.gotoTable(loadBalancingTableId)))
-                .build());
-
-        return flowMods;
-    }
-
-    static List<OFFlowMod> deleteStubFlows(DatapathId dpid, OFFactory factory) {
-        // Preconditions
-        Objects.requireNonNull(dpid);
-        Objects.requireNonNull(factory);
-
-        // Table ids
-        TableId stubTableId = TableId.of(0);
-
-        return Collections.singletonList(factory
-                .buildFlowDelete()
-                .setTableId(stubTableId)
-                .build());
-    }
-
-    // Load Balancing
-    static List<OFFlowMod> addLoadBalancingFlows(DatapathId dpid,
-            OFFactory factory,
-            IPv4Address vip,
-            Collection<LoadBalancingFlow> flows) {
-        // Preconditions
-        Objects.requireNonNull(dpid);
-        Objects.requireNonNull(factory);
-        Objects.requireNonNull(vip);
-        Objects.requireNonNull(flows);
-
-        // OpenFlow
-        OFActions actions = factory.actions();
-        OFOxms oxms = factory.oxms();
-        OFInstructions instructions = factory.instructions();
-
-        // Table ids
-        TableId loadBalancingTableId = getLoadBalancingTableId(dpid);
-        TableId egressMeasurementTableId = getEgressMeasurementTableId(dpid);
-        TableId forwardingTableId = getForwardingTableId(dpid);
-
-        // Add ingress and egress load balancing flows
-        List<OFFlowMod> flowMods = new LinkedList<>();
-        for (LoadBalancingFlow flow : flows) {
-            IPv4Address dip = flow.getDip();
-            IPv4AddressWithMask prefix = flow.getPrefix();
-
-            // Ingress
-            Match ingressMatch = factory
-                    .buildMatch()
-                    .setExact(MatchField.ETH_TYPE, EthType.IPv4)
-                    .setExact(MatchField.IPV4_DST, vip)
-                    .setMasked(MatchField.IPV4_SRC, prefix)
-                    .build();
-
-            MacAddress mac = SERVER_MACS.containsKey(dip)
-                    ? SERVER_MACS.get(dip)
-                    : MacAddress.of(dip.getInt());
-            List<OFAction> ingressActionList = Arrays.asList(
-                    actions.setField(oxms.ethSrc(SWITCH_MAC)),
-                    actions.setField(oxms.ethDst(mac)),
-                    actions.setField(oxms.ipv4Dst(dip)));
-
-            List<OFInstruction> ingressInstructionList = Arrays.asList(
-                    instructions.applyActions(ingressActionList),
-                    instructions.gotoTable(forwardingTableId));
-
-            flowMods.add(factory
-                    .buildFlowAdd()
-                    .setTableId(loadBalancingTableId)
-                    .setPriority(INGRESS_PRIORITY + prefix.getMask().asCidrMaskLength())
-                    .setMatch(ingressMatch)
-                    .setCookie(INGRESS_COOKIE)
-                    .setInstructions(ingressInstructionList)
-                    .build());
-
-            // TODO Transitions?
-        }
-
-
-        // Egress
-        Match egressMatch = factory
-                .buildMatch()
-                .setExact(MatchField.ETH_TYPE, EthType.IPv4)
-                .build();
-
-        List<OFAction> egressActionList = Arrays.asList(
-                actions.setField(oxms.ethSrc(SWITCH_MAC)),
-                actions.setField(oxms.ethDst(DRIVER_MACS.values().iterator().next())), // TODO runtime
-                actions.setField(oxms.ipv4Src(vip)));
-
-        List<OFInstruction> egressInstructionList = Arrays.asList(
-                instructions.applyActions(egressActionList),
-                instructions.gotoTable(egressMeasurementTableId));
-
-        flowMods.add(factory
-                .buildFlowAdd()
-                .setTableId(loadBalancingTableId)
-                .setPriority(EGRESS_PRIORITY)
-                .setMatch(egressMatch)
-                .setCookie(EGRESS_COOKIE)
-                .setInstructions(egressInstructionList)
-                .build());
-
-        // TODO Transitions?
-
-        return flowMods;
-    }
-    static List<OFFlowMod> addLoadBalancingEgressFlows(DatapathId dpid,
-            OFFactory factory,
-            IPv4Address vip) {
-        // Preconditions
-        Objects.requireNonNull(dpid);
-        Objects.requireNonNull(factory);
-        Objects.requireNonNull(vip);
-
-        // OpenFlow
-        OFActions actions = factory.actions();
-        OFOxms oxms = factory.oxms();
-        OFInstructions instructions = factory.instructions();
-
-        // Table ids
-        TableId loadBalancingTableId = getLoadBalancingTableId(dpid);
-        TableId egressMeasurementTableId = getEgressMeasurementTableId(dpid);
-
-        // Add ingress and egress load balancing flows
-        List<OFFlowMod> flowMods = new LinkedList<>();
-        // Egress
-        Match egressMatch = factory
-                .buildMatch()
-                .setExact(MatchField.ETH_TYPE, EthType.IPv4)
-                .build();
-
-        List<OFAction> egressActionList = Arrays.asList(
-                actions.setField(oxms.ethSrc(SWITCH_MAC)),
-                actions.setField(oxms.ethDst(DRIVER_MACS.values().iterator().next())), // TODO runtime
-                actions.setField(oxms.ipv4Src(vip)));
-
-        List<OFInstruction> egressInstructionList = Arrays.asList(
-                instructions.applyActions(egressActionList),
-                instructions.gotoTable(egressMeasurementTableId));
-
-        flowMods.add(factory
-                .buildFlowAdd()
-                .setTableId(loadBalancingTableId)
-                .setPriority(EGRESS_PRIORITY)
-                .setMatch(egressMatch)
-                .setCookie(EGRESS_COOKIE)
-                .setInstructions(egressInstructionList)
-                .build());
-
-        // TODO Transitions?
-
-        return flowMods;
-    }
-
-    static List<OFFlowMod> addTraditionalLoadBalancingFlow(DatapathId dpid,
-            OFFactory factory,
-            IPv4Address vip,
-            LoadBalancingFlow flow) {
-        // Preconditions
-        Objects.requireNonNull(dpid);
-        Objects.requireNonNull(factory);
-        Objects.requireNonNull(vip);
-        Objects.requireNonNull(flow);
-
-        // OpenFlow
-        OFActions actions = factory.actions();
-        OFOxms oxms = factory.oxms();
-        OFInstructions instructions = factory.instructions();
-
-        // Table ids
-        TableId loadBalancingTableId = getLoadBalancingTableId(dpid);
-        TableId forwardingTableId = getForwardingTableId(dpid);
-
-        // Add ingress and egress load balancing flows
-        List<OFFlowMod> flowMods = new LinkedList<>();
-        IPv4Address dip = flow.getDip();
-        IPv4AddressWithMask prefix = flow.getPrefix();
-
-        // Ingress
-        Match ingressMatch = factory
-                .buildMatch()
-                .setExact(MatchField.ETH_TYPE, EthType.IPv4)
-                .setExact(MatchField.IPV4_DST, vip)
-                .setMasked(MatchField.IPV4_SRC, prefix)
-                .build();
-
-        MacAddress mac = SERVER_MACS.containsKey(dip)
-                ? SERVER_MACS.get(dip)
-                : MacAddress.of(dip.getInt());
-        List<OFAction> ingressActionList = Arrays.asList(
-                actions.setField(oxms.ethSrc(SWITCH_MAC)),
-                actions.setField(oxms.ethDst(mac)),
-                actions.setField(oxms.ipv4Dst(dip)));
-
-        List<OFInstruction> ingressInstructionList = Arrays.asList(
-                instructions.applyActions(ingressActionList),
-                instructions.gotoTable(forwardingTableId));
-
-        flowMods.add(factory
-                .buildFlowAdd()
-                .setTableId(loadBalancingTableId)
-                .setPriority(INGRESS_PRIORITY + prefix.getMask().asCidrMaskLength())
-                .setIdleTimeout(TRADITIONAL_IDLE_TIMEOUT)
+                .setPriority(INGRESS_PRIORITY)
                 .setMatch(ingressMatch)
                 .setInstructions(ingressInstructionList)
                 .build());
 
-        return flowMods;
-    }
+        // Egress
+        Match egressMatch = factory
+                .buildMatch()
+                .setExact(MatchField.ETH_TYPE, EthType.IPv4)
+                .build();
 
-    static List<OFFlowMod> addTraditionalLoadBalancingControllerFlows(DatapathId dpid,
-            OFFactory factory,
-            IPv4Address vip,
-            Collection<IPv4AddressWithMask> prefixes) {
-        // Preconditions
-        Objects.requireNonNull(dpid);
-        Objects.requireNonNull(factory);
-        Objects.requireNonNull(vip);
-        Objects.requireNonNull(prefixes);
-
-        // OpenFlow
-        OFActions actions = factory.actions();
-        OFInstructions instructions = factory.instructions();
-
-        // Table ids
-        TableId loadBalancingTableId = getLoadBalancingTableId(dpid);
-
-        // Add ingress and egress load balancing flows
-        List<OFFlowMod> flowMods = new LinkedList<>();
-        for (IPv4AddressWithMask prefix : prefixes) {
-            // Ingress
-            Match ingressMatch = factory
-                    .buildMatch()
-                    .setExact(MatchField.ETH_TYPE, EthType.IPv4)
-                    .setExact(MatchField.IPV4_DST, vip)
-                    .setMasked(MatchField.IPV4_SRC, prefix)
-                    .build();
-
-            List<OFAction> ingressActionList = Collections.singletonList(
-                    actions.output(OFPort.CONTROLLER, Integer.MAX_VALUE));
-
-            List<OFInstruction> ingressInstructionList = Collections.singletonList(
-                    instructions.applyActions(ingressActionList));
-
-            flowMods.add(factory
-                    .buildFlowAdd()
-                    .setTableId(loadBalancingTableId)
-                    .setPriority(INGRESS_PRIORITY + prefix.getMask().asCidrMaskLength())
-                    .setMatch(ingressMatch)
-                    .setCookie(FALLBACK_COOKIE)
-                    .setInstructions(ingressInstructionList)
-                    .build());
-        }
-
-        return flowMods;
-    }
-
-    static List<OFFlowMod> deleteLoadBalancingFlows(DatapathId dpid, OFFactory factory) {
-        // Preconditions
-        Objects.requireNonNull(dpid);
-        Objects.requireNonNull(factory);
-
-        // Table ids
-        TableId loadBalancingTableId = getLoadBalancingTableId(dpid);
-
-        // Delete ingress and egress load balancing flows
-        List<OFFlowMod> flowMods = new LinkedList<>();
+        // Instructions
+        List<OFInstruction> egressInstructionList = singletonList(
+                instructions.gotoTable(loadBalancingTableId));
 
         flowMods.add(factory
-                .buildFlowDelete()
-                .setTableId(loadBalancingTableId)
-                .setCookie(INGRESS_COOKIE)
-                .build());
-
-        flowMods.add(factory
-                .buildFlowDelete()
-                .setTableId(loadBalancingTableId)
-                .setCookie(EGRESS_COOKIE)
+                .buildFlowAdd()
+                .setTableId(stubTableId)
+                .setPriority(EGRESS_PRIORITY)
+                .setMatch(egressMatch)
+                .setInstructions(egressInstructionList)
                 .build());
 
         return flowMods;
     }
 
-    // Traffic Measurement
-    static List<OFFlowMod> addMeasurementFlows(DatapathId dpid, OFFactory factory, PrefixTrie<Long> measurement) {
-        // Preconditions
-        Objects.requireNonNull(dpid);
-        Objects.requireNonNull(factory);
-        Objects.requireNonNull(measurement);
-
-        // OpenFlow intsructions
-        OFInstructions instructions = factory.instructions();
-
-        // Table ids
-        TableId ingressMeasurementTableId = getIngressMeasurementTableId(dpid);
-        TableId loadBalancingTableId = getLoadBalancingTableId(dpid);
-        TableId egressMeasurementTableId = getEgressMeasurementTableId(dpid);
-        TableId forwardingTableId = getForwardingTableId(dpid);
-
-        // Add ingress and egress measurement flows
-        List<OFFlowMod> flowMods = new LinkedList<>();
-        measurement.traversePreOrder((node, prefix) -> {
-            if (node.isLeaf()) {
-                Match ingressMatch = factory
-                        .buildMatch()
-                        .setExact(MatchField.ETH_TYPE, EthType.IPv4)
-                        // TODO vip?
-                        .setMasked(MatchField.IPV4_SRC, prefix)
-                        .build();
-
-                // Ingress
-                flowMods.add(factory
-                        .buildFlowAdd()
-                        .setTableId(ingressMeasurementTableId)
-                        .setCookie(INGRESS_COOKIE)
-                        .setPriority(INGRESS_PRIORITY + prefix.getMask().asCidrMaskLength())
-                        .setMatch(ingressMatch)
-                        .setInstructions(Collections.singletonList(instructions.gotoTable(loadBalancingTableId)))
-                        .build());
-
-                Match egressMatch = factory
-                        .buildMatch()
-                        .setExact(MatchField.ETH_TYPE, EthType.IPv4)
-                        .setMasked(MatchField.IPV4_DST, prefix)
-                        .build();
-
-                // Egress
-                flowMods.add(factory
-                        .buildFlowAdd()
-                        .setTableId(egressMeasurementTableId)
-                        .setCookie(EGRESS_COOKIE)
-                        .setPriority(EGRESS_PRIORITY + prefix.getMask().asCidrMaskLength())
-                        .setMatch(egressMatch)
-                        .setInstructions(Collections.singletonList(instructions.gotoTable(forwardingTableId)))
-                        .build());
-            }
-        });
-
-        return flowMods;
-    }
-    static List<OFFlowMod> addMeasurementFlows(DatapathId dpid, OFFactory factory, Collection<IPv4AddressWithMask> flows) {
+    // Measurement
+    static List<OFFlowMod> addMeasurementFlows(DatapathId dpid, OFFactory factory, Iterable<IPv4AddressWithMask> flows) {
         // Preconditions
         Objects.requireNonNull(dpid);
         Objects.requireNonNull(factory);
@@ -517,7 +206,7 @@ class MessageBuilder {
                     .setCookie(INGRESS_COOKIE)
                     .setPriority(INGRESS_PRIORITY + prefix.getMask().asCidrMaskLength())
                     .setMatch(ingressMatch)
-                    .setInstructions(Collections.singletonList(instructions.gotoTable(loadBalancingTableId)))
+                    .setInstructions(singletonList(instructions.gotoTable(loadBalancingTableId)))
                     .build());
 
             Match egressMatch = factory
@@ -533,7 +222,7 @@ class MessageBuilder {
                     .setCookie(EGRESS_COOKIE)
                     .setPriority(EGRESS_PRIORITY + prefix.getMask().asCidrMaskLength())
                     .setMatch(egressMatch)
-                    .setInstructions(Collections.singletonList(instructions.gotoTable(forwardingTableId)))
+                    .setInstructions(singletonList(instructions.gotoTable(forwardingTableId)))
                     .build());
         }
 
@@ -586,7 +275,7 @@ class MessageBuilder {
                 .setTableId(getIngressMeasurementTableId(dpid))
                 .setCookie(FALLBACK_COOKIE)
                 .setPriority(FALLBACK_PRIORITY)
-                .setInstructions(Collections.singletonList(instructions.gotoTable(loadBalancingTableId)))
+                .setInstructions(singletonList(instructions.gotoTable(loadBalancingTableId)))
                 .build());
 
         // Egress
@@ -595,42 +284,183 @@ class MessageBuilder {
                 .setTableId(getEgressMeasurementTableId(dpid))
                 .setCookie(FALLBACK_COOKIE)
                 .setPriority(FALLBACK_PRIORITY)
-                .setInstructions(Collections.singletonList(instructions.gotoTable(forwardingTableId)))
+                .setInstructions(singletonList(instructions.gotoTable(forwardingTableId)))
                 .build());
 
         return flowMods;
     }
 
-    static List<OFFlowMod> deleteFallbackFlows(DatapathId dpid, OFFactory factory) {
+    // Load Balancing
+    static List<OFFlowMod> addLoadBalancingIngressFlows(DatapathId dpid, OFFactory factory, IPv4Address vip,
+            Iterable<LoadBalancingFlow> flows, U64 cookie, boolean timeout) {
         // Preconditions
         Objects.requireNonNull(dpid);
         Objects.requireNonNull(factory);
+        Objects.requireNonNull(vip);
+        Objects.requireNonNull(flows);
+        Objects.requireNonNull(cookie);
 
-        // Delete ingress and egress fallback flows
+        // OpenFlow
+        OFActions actions = factory.actions();
+        OFOxms oxms = factory.oxms();
+        OFInstructions instructions = factory.instructions();
+
+        // Table ids
+        TableId loadBalancingTableId = getLoadBalancingTableId(dpid);
+        TableId forwardingTableId = getForwardingTableId(dpid);
+
         List<OFFlowMod> flowMods = new LinkedList<>();
+        for (LoadBalancingFlow flow : flows) {
+            IPv4Address dip = flow.getDip();
+            IPv4AddressWithMask prefix = flow.getPrefix();
 
-        // Ingress
-        flowMods.add(factory
-                .buildFlowDelete()
-                .setTableId(getIngressMeasurementTableId(dpid))
-                .setCookie(FALLBACK_COOKIE)
-                .build());
+            // Match
+            Match match = factory
+                    .buildMatch()
+                    .setExact(MatchField.ETH_TYPE, EthType.IPv4)
+                    .setExact(MatchField.IPV4_DST, vip)
+                    .setMasked(MatchField.IPV4_SRC, prefix)
+                    .build();
 
-        // Egress
-        flowMods.add(factory
-                .buildFlowDelete()
-                .setTableId(getEgressMeasurementTableId(dpid))
-                .setCookie(FALLBACK_COOKIE)
+            // Actions
+            MacAddress dstMac = SERVER_MACS.containsKey(dip) ? SERVER_MACS.get(dip) : MacAddress.of(dip.getInt());
+            List<OFAction> actionList = Arrays.asList(
+                    actions.setField(oxms.ethSrc(SWITCH_MAC)),
+                    actions.setField(oxms.ethDst(dstMac)),
+                    actions.setField(oxms.ipv4Dst(dip)));
+
+            // Instructions
+            List<OFInstruction> instructionList = Arrays.asList(
+                    instructions.applyActions(actionList),
+                    instructions.gotoTable(forwardingTableId));
+
+            Builder builder = factory
+                    .buildFlowAdd()
+                    .setTableId(loadBalancingTableId)
+                    .setPriority(INGRESS_PRIORITY + prefix.getMask().asCidrMaskLength())
+                    .setMatch(match)
+                    .setCookie(cookie)
+                    .setInstructions(instructionList);
+
+            if (timeout) {
+                builder.setIdleTimeout(TRADITIONAL_IDLE_TIMEOUT);
+            }
+
+            flowMods.add(builder.build());
+
+            // TODO Transitions?
+        }
+        return flowMods;
+    }
+
+    static List<OFFlowMod> addLoadBalancingEgressFlows(DatapathId dpid, OFFactory factory, IPv4Address vip) {
+        // Preconditions
+        Objects.requireNonNull(dpid);
+        Objects.requireNonNull(factory);
+        Objects.requireNonNull(vip);
+
+        // OpenFlow
+        OFActions actions = factory.actions();
+        OFOxms oxms = factory.oxms();
+        OFInstructions instructions = factory.instructions();
+
+        // Table ids
+        TableId loadBalancingTableId = getLoadBalancingTableId(dpid);
+        TableId egressMeasurementTableId = getEgressMeasurementTableId(dpid);
+
+        // Match
+        Match match = factory
+                .buildMatch()
+                .setExact(MatchField.ETH_TYPE, EthType.IPv4)
+                .build();
+
+        // Actions
+        List<OFAction> actionList = Arrays.asList(
+                actions.setField(oxms.ethSrc(SWITCH_MAC)),
+                actions.setField(oxms.ethDst(DRIVER_MACS.values().iterator().next())), // FIXME runtime
+                actions.setField(oxms.ipv4Src(vip)));
+
+        // Instructions
+        List<OFInstruction> instructionList = Arrays.asList(
+                instructions.applyActions(actionList),
+                instructions.gotoTable(egressMeasurementTableId));
+
+        return singletonList(factory
+                .buildFlowAdd()
+                .setTableId(loadBalancingTableId)
+                .setPriority(EGRESS_PRIORITY)
+                .setMatch(match)
+                .setInstructions(instructionList)
                 .build());
+    }
+
+    static List<OFFlowMod> addLoadBalancingControllerFlows(DatapathId dpid, OFFactory factory, IPv4Address vip,
+            Iterable<IPv4AddressWithMask> prefixes) {
+        // Preconditions
+        Objects.requireNonNull(dpid);
+        Objects.requireNonNull(factory);
+        Objects.requireNonNull(vip);
+        Objects.requireNonNull(prefixes);
+
+        // OpenFlow
+        OFActions actions = factory.actions();
+        OFInstructions instructions = factory.instructions();
+
+        // Table ids
+        TableId loadBalancingTableId = getLoadBalancingTableId(dpid);
+
+        List<OFFlowMod> flowMods = new LinkedList<>();
+        for (IPv4AddressWithMask prefix : prefixes) {
+            // Match
+            Match match = factory
+                    .buildMatch()
+                    .setExact(MatchField.ETH_TYPE, EthType.IPv4)
+                    .setExact(MatchField.IPV4_DST, vip)
+                    .setMasked(MatchField.IPV4_SRC, prefix)
+                    .build();
+
+            // Actions
+            List<OFAction> actionList = singletonList(
+                    actions.output(OFPort.CONTROLLER, Integer.MAX_VALUE));
+
+            // Instructions
+            List<OFInstruction> instructionList = singletonList(
+                    instructions.applyActions(actionList));
+
+            flowMods.add(factory
+                    .buildFlowAdd()
+                    .setTableId(loadBalancingTableId)
+                    .setPriority(INGRESS_PRIORITY + prefix.getMask().asCidrMaskLength())
+                    .setMatch(match)
+                    .setInstructions(instructionList)
+                    .build());
+        }
 
         return flowMods;
+    }
+
+    static List<OFFlowMod> deleteLoadBalancingFlows(DatapathId dpid, OFFactory factory, U64 cookie) {
+        // Preconditions
+        Objects.requireNonNull(dpid);
+        Objects.requireNonNull(factory);
+        Objects.requireNonNull(cookie);
+
+        // Table ids
+        TableId loadBalancingTableId = getLoadBalancingTableId(dpid);
+
+        return singletonList(factory
+                .buildFlowDelete()
+                .setTableId(loadBalancingTableId)
+                .setCookie(cookie)
+                .build());
     }
 
     // Forwarding
-    static List<OFFlowMod> addForwardingFlows(DatapathId dpid, OFFactory factory, List<ForwardingFlow> flows) {
+    static List<OFFlowMod> addForwardingFlows(DatapathId dpid, OFFactory factory, Iterable<ForwardingFlow> flows) {
         // Preconditions
         Objects.requireNonNull(dpid);
         Objects.requireNonNull(factory);
+        Objects.requireNonNull(flows);
 
         // OpenFlow intsructions
         OFActions actions = factory.actions();
@@ -639,55 +469,38 @@ class MessageBuilder {
         // Table ids
         TableId forwardingTableId = getForwardingTableId(dpid);
 
-        // Delete ingress and egress fallback flows
         List<OFFlowMod> flowMods = new LinkedList<>();
-
         for (ForwardingFlow flow : flows) {
-            List<OFAction> actionList;
-            if ((flow.getPrefix().equals(IPv4AddressWithMask.of("10.5.1.13/32")) && flow.getPort() == 1)
-                    || (false && flow.getPrefix().equals(IPv4AddressWithMask.of("10.5.1.12/32")) && flow.getPort() == 3)) {
-                actionList = Collections.singletonList(actions.output(OFPort.CONTROLLER,
-                        Integer.MAX_VALUE));
-            } else {
-                actionList = Collections.singletonList(actions.output(OFPort.of(flow.getPort()),
-                        Integer.MAX_VALUE));
-            }
-
+            OFPort port = OFPort.of(flow.getPort());
             IPv4AddressWithMask prefix = flow.getPrefix();
 
+            // Match
             Match match = factory.buildMatch()
                     .setExact(MatchField.ETH_TYPE, EthType.IPv4)
                     .setMasked(MatchField.IPV4_DST, prefix)
                     .build();
+
+            // Actions
+            List<OFAction> actionList = singletonList(
+                    actions.output(port, Integer.MAX_VALUE));
+
+            // Instructions
+            List<OFInstruction> instructionList = singletonList(
+                    instructions.applyActions(actionList));
 
             flowMods.add(factory
                     .buildFlowAdd()
                     .setTableId(forwardingTableId)
                     .setPriority(EGRESS_PRIORITY + prefix.getMask().asCidrMaskLength())
                     .setMatch(match)
-                    .setInstructions(Collections.singletonList(instructions.applyActions(actionList)))
+                    .setInstructions(instructionList)
                     .build());
         }
 
         return flowMods;
     }
 
-    static List<OFFlowMod> deleteForwardingFlows(DatapathId dpid, OFFactory factory) {
-        // Preconditions
-        Objects.requireNonNull(dpid);
-        Objects.requireNonNull(factory);
-
-        // Delete ingress and egress fallback flows
-        List<OFFlowMod> flowMods = new LinkedList<>();
-
-        flowMods.add(factory
-                .buildFlowDelete()
-                .setTableId(getForwardingTableId(dpid))
-                .build());
-
-        return flowMods;
-    }
-
+    // Stats
     static OFFlowStatsRequest requestIngressMeasurementFlowStats(DatapathId dpid, OFFactory factory) {
         // Preconditions
         Objects.requireNonNull(dpid);

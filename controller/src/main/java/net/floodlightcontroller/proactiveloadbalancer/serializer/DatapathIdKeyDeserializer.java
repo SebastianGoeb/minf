@@ -1,4 +1,4 @@
-package net.floodlightcontroller.proactiveloadbalancer.web;
+package net.floodlightcontroller.proactiveloadbalancer.serializer;
 
 import com.fasterxml.jackson.databind.DeserializationContext;
 import com.fasterxml.jackson.databind.deser.std.StdKeyDeserializer;
@@ -7,9 +7,9 @@ import org.projectfloodlight.openflow.types.IPv4AddressWithMask;
 
 import java.io.IOException;
 
-class DatapathIdKeyDeserializer extends StdKeyDeserializer {
+public class DatapathIdKeyDeserializer extends StdKeyDeserializer {
 
-    DatapathIdKeyDeserializer() {
+    public DatapathIdKeyDeserializer() {
         super(-1, IPv4AddressWithMask.class);
     }
 

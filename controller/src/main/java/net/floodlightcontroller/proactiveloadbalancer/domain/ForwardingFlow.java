@@ -1,14 +1,15 @@
-package net.floodlightcontroller.proactiveloadbalancer;
+package net.floodlightcontroller.proactiveloadbalancer.domain;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
+import net.floodlightcontroller.proactiveloadbalancer.serializer.IPv4AddressWithMaskDeserializer;
 import org.projectfloodlight.openflow.types.IPv4AddressWithMask;
 
 import java.util.Objects;
 
-class ForwardingFlow {
+public class ForwardingFlow {
 
     @JsonProperty
     @JsonSerialize(using = ToStringSerializer.class)
@@ -18,7 +19,7 @@ class ForwardingFlow {
     @JsonProperty
     private int port;
 
-    ForwardingFlow(IPv4AddressWithMask prefix, int port) {
+    public ForwardingFlow(IPv4AddressWithMask prefix, int port) {
         this.prefix = prefix;
         this.port = port;
     }

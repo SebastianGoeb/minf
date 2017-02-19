@@ -1,10 +1,8 @@
 package net.floodlightcontroller.proactiveloadbalancer;
 
 import net.floodlightcontroller.core.module.IFloodlightService;
+import net.floodlightcontroller.proactiveloadbalancer.domain.Config;
 
 public interface IProactiveLoadBalancerService extends IFloodlightService {
-    // Config
-//    void setVip(IPv4Address vip);
-//    void setTopology(Topology topology);
     void setConfig(Config config);
 }

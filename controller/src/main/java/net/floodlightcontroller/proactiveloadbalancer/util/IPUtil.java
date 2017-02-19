@@ -1,4 +1,4 @@
-package net.floodlightcontroller.proactiveloadbalancer;
+package net.floodlightcontroller.proactiveloadbalancer.util;
 
 import com.google.common.primitives.UnsignedInts;
 import org.projectfloodlight.openflow.types.IPv4Address;
@@ -6,13 +6,17 @@ import org.projectfloodlight.openflow.types.IPv4AddressWithMask;
 
 import java.util.*;
 
-public class IPUtils {
+public class IPUtil {
     public static IPv4Address max (IPv4AddressWithMask prefix) {
         return prefix.getValue();
     }
 
     public static IPv4Address min (IPv4AddressWithMask prefix) {
         return prefix.getValue().or(prefix.getMask().not());
+    }
+
+    public static IPv4AddressWithMask base(IPv4AddressRange range) {
+        return base(range.getMin(), range.getMax());
     }
 
     public static IPv4AddressWithMask base(IPv4Address ip, IPv4Address... otherIPs) {
@@ -42,9 +46,9 @@ public class IPUtils {
                 .withMaskOfLength(prefix.getMask().asCidrMaskLength() + 1);
     }
 
-    public static List<IPv4AddressWithMask> nonOverlappingPrefixes(IPv4Address minAddress, IPv4Address maxAddress) {
-        int rangeMin = minAddress.getInt();
-        int rangeMax = maxAddress.getInt();
+    public static List<IPv4AddressWithMask> nonOverlappingPrefixes(IPv4AddressRange range) {
+        int rangeMin = range.getMin().getInt();
+        int rangeMax = range.getMax().getInt();
         List<IPv4AddressWithMask> prefixes = new ArrayList<>();
         Queue<IPv4AddressWithMask> queue = new PriorityQueue<>();
         queue.add(IPv4AddressWithMask.of("0.0.0.0/0"));

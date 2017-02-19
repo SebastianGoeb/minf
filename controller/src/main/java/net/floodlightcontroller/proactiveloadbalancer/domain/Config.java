@@ -1,9 +1,15 @@
-package net.floodlightcontroller.proactiveloadbalancer;
+package net.floodlightcontroller.proactiveloadbalancer.domain;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.fasterxml.jackson.databind.ser.std.StdKeySerializer;
 import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
+import net.floodlightcontroller.proactiveloadbalancer.serializer.DatapathIdDeserializer;
+import net.floodlightcontroller.proactiveloadbalancer.serializer.IPv4AddressDeserializer;
+import net.floodlightcontroller.proactiveloadbalancer.serializer.IPv4AddressKeyDeserializer;
+import net.floodlightcontroller.proactiveloadbalancer.serializer.IPv4AddressWithMaskDeserializer;
+import net.floodlightcontroller.proactiveloadbalancer.util.IPv4AddressRange;
 import org.projectfloodlight.openflow.types.DatapathId;
 import org.projectfloodlight.openflow.types.IPv4Address;
 import org.projectfloodlight.openflow.types.IPv4AddressWithMask;
@@ -16,55 +22,119 @@ public class Config {
 
     @JsonProperty
     @JsonSerialize(using = ToStringSerializer.class)
+    @JsonDeserialize(using = IPv4AddressDeserializer.class)
     private IPv4Address vip;
+
     @JsonProperty
     @JsonSerialize(using = ToStringSerializer.class)
+    @JsonDeserialize(using = IPv4AddressWithMaskDeserializer.class)
     private IPv4AddressWithMask dVipRange;
+
     @JsonProperty
-    private Map<Strategy, IPv4AdressRange> strategyRanges;
+    private Map<Strategy, IPv4AddressRange> strategyRanges;
+
+    // Derived
+    private IPv4AddressRange clientRange;
+
     @JsonProperty
     private Topology topology;
+
     @JsonProperty
     @JsonSerialize(contentUsing = ToStringSerializer.class)
+    @JsonDeserialize(contentUsing = DatapathIdDeserializer.class)
     private List<DatapathId> loadBalancers;
+
     @JsonProperty
     private long measurementInterval;
+
     @JsonProperty
     private double measurementThreshold;
+
     @JsonProperty
     @JsonSerialize(keyUsing = StdKeySerializer.class)
+    @JsonDeserialize(keyUsing = IPv4AddressKeyDeserializer.class)
     private Map<IPv4Address, Double> weights;
 
     public IPv4Address getVip() {
         return vip;
     }
 
+    public Config setVip(IPv4Address vip) {
+        this.vip = vip;
+        return this;
+    }
+
     public IPv4AddressWithMask getdVipRange() {
         return dVipRange;
     }
 
-    public Map<Strategy, IPv4AdressRange> getStrategyRanges() {
+    public Config setdVipRange(IPv4AddressWithMask dVipRange) {
+        this.dVipRange = dVipRange;
+        return this;
+    }
+
+    public Map<Strategy, IPv4AddressRange> getStrategyRanges() {
         return strategyRanges;
+    }
+
+    public Config setStrategyRanges(Map<Strategy, IPv4AddressRange> strategyRanges) {
+        this.strategyRanges = strategyRanges;
+        this.clientRange = strategyRanges.values().stream()
+                .reduce((r0, r1) -> new IPv4AddressRange(
+                        r0.getMin().compareTo(r1.getMin()) < 0 ? r0.getMin() : r1.getMin(),
+                        r0.getMax().compareTo(r1.getMax()) > 0 ? r0.getMax() : r1.getMax()
+                ))
+                .orElse(null);
+        return this;
+    }
+
+    public IPv4AddressRange getClientRange() {
+        return clientRange;
     }
 
     public Topology getTopology() {
         return topology;
     }
 
+    public Config setTopology(Topology topology) {
+        this.topology = topology;
+        return this;
+    }
+
     public List<DatapathId> getLoadBalancers() {
         return loadBalancers;
+    }
+
+    public Config setLoadBalancers(List<DatapathId> loadBalancers) {
+        this.loadBalancers = loadBalancers;
+        return this;
     }
 
     public long getMeasurementInterval() {
         return measurementInterval;
     }
 
+    public Config setMeasurementInterval(long measurementInterval) {
+        this.measurementInterval = measurementInterval;
+        return this;
+    }
+
     public double getMeasurementThreshold() {
         return measurementThreshold;
     }
 
+    public Config setMeasurementThreshold(double measurementThreshold) {
+        this.measurementThreshold = measurementThreshold;
+        return this;
+    }
+
     public Map<IPv4Address, Double> getWeights() {
         return weights;
+    }
+
+    public Config setWeights(Map<IPv4Address, Double> weights) {
+        this.weights = weights;
+        return this;
     }
 
     @Override

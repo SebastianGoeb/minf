@@ -1,4 +1,4 @@
-package net.floodlightcontroller.proactiveloadbalancer;
+package net.floodlightcontroller.proactiveloadbalancer.serializer;
 
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -11,8 +11,6 @@ import org.projectfloodlight.openflow.types.IPv4AddressWithMask;
 import java.io.IOException;
 
 public class IPv4AddressWithMaskDeserializer extends StdDeserializer<IPv4AddressWithMask> {
-
-	private static final long serialVersionUID = 1L;
 
 	public IPv4AddressWithMaskDeserializer() {
 		super(IPv4Address.class);

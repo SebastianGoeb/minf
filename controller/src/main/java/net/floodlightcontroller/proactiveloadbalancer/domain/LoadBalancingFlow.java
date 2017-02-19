@@ -1,15 +1,17 @@
-package net.floodlightcontroller.proactiveloadbalancer;
+package net.floodlightcontroller.proactiveloadbalancer.domain;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
+import net.floodlightcontroller.proactiveloadbalancer.serializer.IPv4AddressDeserializer;
+import net.floodlightcontroller.proactiveloadbalancer.serializer.IPv4AddressWithMaskDeserializer;
 import org.projectfloodlight.openflow.types.IPv4Address;
 import org.projectfloodlight.openflow.types.IPv4AddressWithMask;
 
 import java.util.Objects;
 
-class LoadBalancingFlow {
+public class LoadBalancingFlow {
 
 
 	@JsonProperty
@@ -21,8 +23,8 @@ class LoadBalancingFlow {
 	@JsonSerialize(using = ToStringSerializer.class)
 	@JsonDeserialize(using = IPv4AddressDeserializer.class)
 	private final IPv4Address dip;
-	
-	LoadBalancingFlow(IPv4AddressWithMask prefix, IPv4Address dip) {
+
+	public LoadBalancingFlow(IPv4AddressWithMask prefix, IPv4Address dip) {
 		this.prefix = prefix;
 		this.dip = dip;
 	}

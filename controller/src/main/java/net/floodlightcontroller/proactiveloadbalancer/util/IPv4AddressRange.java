@@ -1,14 +1,15 @@
-package net.floodlightcontroller.proactiveloadbalancer;
+package net.floodlightcontroller.proactiveloadbalancer.util;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
+import net.floodlightcontroller.proactiveloadbalancer.serializer.IPv4AddressDeserializer;
 import org.projectfloodlight.openflow.types.IPv4Address;
 
 import java.util.Objects;
 
-class IPv4AdressRange {
+public class IPv4AddressRange {
 
     @JsonProperty
     @JsonSerialize(using = ToStringSerializer.class)
@@ -20,19 +21,42 @@ class IPv4AdressRange {
     @JsonDeserialize(using = IPv4AddressDeserializer.class)
     private IPv4Address max;
 
+    public IPv4AddressRange() {
+        this(null, null);
+    }
+
+    public IPv4AddressRange(IPv4Address min, IPv4Address max) {
+        this.min = min;
+        this.max = max;
+    }
+
     public IPv4Address getMin() {
         return min;
+    }
+
+    public IPv4AddressRange setMin(IPv4Address min) {
+        this.min = min;
+        return this;
     }
 
     public IPv4Address getMax() {
         return max;
     }
 
+    public IPv4AddressRange setMax(IPv4Address max) {
+        this.max = max;
+        return this;
+    }
+
+    public boolean contains(IPv4Address ip) {
+        return min.compareTo(ip) <= 0 && ip.compareTo(max) <= 0;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
-        IPv4AdressRange that = (IPv4AdressRange) o;
+        IPv4AddressRange that = (IPv4AddressRange) o;
         return Objects.equals(min, that.min) &&
                 Objects.equals(max, that.max);
     }

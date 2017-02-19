@@ -1,4 +1,4 @@
-package net.floodlightcontroller.proactiveloadbalancer;
+package net.floodlightcontroller.proactiveloadbalancer.util;
 
 import org.projectfloodlight.openflow.types.IPv4AddressWithMask;
 
@@ -7,7 +7,7 @@ import java.util.PriorityQueue;
 import java.util.Queue;
 import java.util.function.BiConsumer;
 
-class PrefixTrie<T> {
+public class PrefixTrie<T> {
 
     private Node<T> root;
     private IPv4AddressWithMask rootPrefix;
@@ -17,15 +17,15 @@ class PrefixTrie<T> {
         this.root = root;
     }
 
-    static <T> PrefixTrie<T> empty(IPv4AddressWithMask rootPrefix, T defaultValue) {
+    public static <T> PrefixTrie<T> empty(IPv4AddressWithMask rootPrefix, T defaultValue) {
         return new PrefixTrie<>(rootPrefix, Node.with(defaultValue));
     }
 
-    static <T> PrefixTrie<T> copy(PrefixTrie<T> tree) {
+    public static <T> PrefixTrie<T> copy(PrefixTrie<T> tree) {
         return new PrefixTrie<>(tree.rootPrefix, Node.copy(tree.root));
     }
 
-    static <T> PrefixTrie<T> inflate(IPv4AddressWithMask rootPrefix, T defaultValue, Collection<IPv4AddressWithMask> prefixes) {
+    public static <T> PrefixTrie<T> inflate(IPv4AddressWithMask rootPrefix, T defaultValue, Collection<IPv4AddressWithMask> prefixes) {
         // Sorted by prefix (low to high, then shallow to deep)
         Queue<IPv4AddressWithMask> prefixesInPreOrder = new PriorityQueue<>(prefixes);
         PrefixTrie<T> newTree = empty(rootPrefix, defaultValue);
@@ -45,20 +45,20 @@ class PrefixTrie<T> {
         return newTree;
     }
 
-    void traversePreOrder(BiConsumer<Node<T>, IPv4AddressWithMask> consumer) {
+    public void traversePreOrder(BiConsumer<Node<T>, IPv4AddressWithMask> consumer) {
         root.traverse(rootPrefix, consumer, null, null);
     }
 
-    void traversePostOrder(BiConsumer<Node<T>, IPv4AddressWithMask> consumer) {
+    public void traversePostOrder(BiConsumer<Node<T>, IPv4AddressWithMask> consumer) {
         root.traverse(rootPrefix, null, null, consumer);
     }
 
-    Node<T> getRoot() {
+    public Node<T> getRoot() {
         return root;
     }
 
     // Value class
-    static final class Node<T> {
+    public static final class Node<T> {
         private Node<T> parent;
         private Node<T> child0;
         private Node<T> child1;
@@ -84,51 +84,51 @@ class PrefixTrie<T> {
             return newNode;
         }
 
-        Node<T> getParent() {
+        public Node<T> getParent() {
             return parent;
         }
 
-        Node<T> getChild0() {
+        public Node<T> getChild0() {
             return child0;
         }
 
-        Node<T> getChild1() {
+        public Node<T> getChild1() {
             return child1;
         }
 
-        T getValue() {
+        public T getValue() {
             return value;
         }
 
-        Node<T> setValue(T value) {
+        public Node<T> setValue(T value) {
             this.value = value;
             return this;
         }
 
-        boolean isLeaf() {
+        public boolean isLeaf() {
             return child0 == null && child1 == null;
         }
 
-        boolean isRoot() {
+        public boolean isRoot() {
             return parent == null;
         }
 
-        void expand(T value0, T value1) {
+        public void expand(T value0, T value1) {
             expand0(value0);
             expand1(value1);
         }
 
-        void expand0(T value0) {
+        public void expand0(T value0) {
             child0 = Node.with(value0);
             child0.parent = this;
         }
 
-        void expand1(T value1) {
+        public void expand1(T value1) {
             child1 = Node.with(value1);
             child1.parent = this;
         }
 
-        void collapse() {
+        public void collapse() {
             child0.parent = null;
             child0 = null;
             child1.parent = null;
@@ -143,13 +143,13 @@ class PrefixTrie<T> {
                 preOrderVisitor.accept(this, prefix);
             }
             if (child0 != null) {
-                child0.traverse(IPUtils.subprefix0(prefix), preOrderVisitor, inOrderVisitor, postOrderVisitor);
+                child0.traverse(IPUtil.subprefix0(prefix), preOrderVisitor, inOrderVisitor, postOrderVisitor);
             }
             if (inOrderVisitor != null) {
                 inOrderVisitor.accept(this, prefix);
             }
             if (child1 != null) {
-                child0.traverse(IPUtils.subprefix1(prefix), preOrderVisitor, inOrderVisitor, postOrderVisitor);
+                child0.traverse(IPUtil.subprefix1(prefix), preOrderVisitor, inOrderVisitor, postOrderVisitor);
             }
             if (postOrderVisitor != null) {
                 postOrderVisitor.accept(this, prefix);
