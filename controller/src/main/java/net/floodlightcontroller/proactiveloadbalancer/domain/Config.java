@@ -5,10 +5,7 @@ import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.fasterxml.jackson.databind.ser.std.StdKeySerializer;
 import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
-import net.floodlightcontroller.proactiveloadbalancer.serializer.DatapathIdDeserializer;
-import net.floodlightcontroller.proactiveloadbalancer.serializer.IPv4AddressDeserializer;
-import net.floodlightcontroller.proactiveloadbalancer.serializer.IPv4AddressKeyDeserializer;
-import net.floodlightcontroller.proactiveloadbalancer.serializer.IPv4AddressWithMaskDeserializer;
+import net.floodlightcontroller.proactiveloadbalancer.serializer.*;
 import net.floodlightcontroller.proactiveloadbalancer.util.IPv4AddressRange;
 import org.projectfloodlight.openflow.types.DatapathId;
 import org.projectfloodlight.openflow.types.IPv4Address;
@@ -54,6 +51,11 @@ public class Config {
     @JsonSerialize(keyUsing = StdKeySerializer.class)
     @JsonDeserialize(keyUsing = IPv4AddressKeyDeserializer.class)
     private Map<IPv4Address, Double> weights;
+
+    @JsonProperty
+    @JsonSerialize(keyUsing = StdKeySerializer.class)
+    @JsonDeserialize(keyUsing = DatapathIdKeyDeserializer.class)
+    private Map<DatapathId, MeasurementCommand> measurementCommands;
 
     public IPv4Address getVip() {
         return vip;
@@ -137,6 +139,15 @@ public class Config {
         return this;
     }
 
+    public Map<DatapathId, MeasurementCommand> getMeasurementCommands() {
+        return measurementCommands;
+    }
+
+    public Config setMeasurementCommands(Map<DatapathId, MeasurementCommand> measurementCommands) {
+        this.measurementCommands = measurementCommands;
+        return this;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -149,7 +160,8 @@ public class Config {
                 Objects.equals(strategyRanges, config.strategyRanges) &&
                 Objects.equals(topology, config.topology) &&
                 Objects.equals(loadBalancers, config.loadBalancers) &&
-                Objects.equals(weights, config.weights);
+                Objects.equals(weights, config.weights) &&
+                Objects.equals(measurementCommands, config.measurementCommands);
     }
 
     @Override
@@ -161,6 +173,8 @@ public class Config {
                 loadBalancers,
                 measurementInterval,
                 measurementThreshold,
-                weights);
+                weights,
+                measurementCommands);
     }
+
 }

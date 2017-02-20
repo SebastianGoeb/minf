@@ -3,6 +3,7 @@ package net.floodlightcontroller.proactiveloadbalancer;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.io.CharStreams;
 import net.floodlightcontroller.core.*;
 import net.floodlightcontroller.core.internal.IOFSwitchService;
 import net.floodlightcontroller.core.internal.OFErrorMsgException;
@@ -26,6 +27,8 @@ import org.projectfloodlight.openflow.types.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.util.*;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ScheduledFuture;
@@ -33,8 +36,7 @@ import java.util.concurrent.TimeUnit;
 
 import static java.util.Collections.emptyList;
 import static java.util.Collections.singletonList;
-import static java.util.stream.Collectors.toList;
-import static java.util.stream.Collectors.toMap;
+import static java.util.stream.Collectors.*;
 import static net.floodlightcontroller.proactiveloadbalancer.domain.Strategy.non_uniform;
 import static net.floodlightcontroller.proactiveloadbalancer.domain.Strategy.traditional;
 
@@ -59,61 +61,9 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
     private ScheduledFuture<?> collectionFuture;
 
     // Runtime stuff
-    private Map<DatapathId, Collection<Measurement>> measurements;
+    private Map<DatapathId, List<Measurement>> measurements;
     private Map<Strategy, List<LoadBalancingFlow>> logicalLoadBalancingFlows;
     private Map<Strategy, Map<DatapathId, List<LoadBalancingFlow>>> physicalLoadBalancingFlows;
-
-    // Utilities
-    private static List<Measurement> getMeasurements(IOFSwitch ofSwitch) {
-        Objects.requireNonNull(ofSwitch);
-
-        DatapathId dpid = ofSwitch.getId();
-        OFFactory factory = ofSwitch.getOFFactory();
-
-        // Build stats requests
-        OFFlowStatsRequest ingressRequest = MessageBuilder.requestIngressMeasurementFlowStats(dpid, factory);
-        OFFlowStatsRequest egressRequest = MessageBuilder.requestEgressMeasurementFlowStats(dpid, factory);
-
-        LOG.info("Getting byte counts from switch {}", dpid);
-        List<OFFlowStatsReply> replies = new ArrayList<>();
-        try {
-            replies.addAll(ofSwitch
-                    .writeStatsRequest(ingressRequest)
-                    .get());
-            replies.addAll(ofSwitch
-                    .writeStatsRequest(egressRequest)
-                    .get());
-        } catch (InterruptedException e) {
-            LOG.info("Interruped while getting byte counts from switch {}", dpid);
-            return emptyList();
-        } catch (ExecutionException e) {
-            LOG.info("Unable to get byte counts from switch {} due to {}", dpid,
-                    ((OFErrorMsgException) e.getCause()).getErrorMessage());
-            return emptyList();
-        }
-        LOG.info("# of stats replies: {}", replies.size());
-
-        // Record prefix and byte count for all flows
-        List<Measurement> measurements = new ArrayList<>();
-        for (OFFlowStatsReply reply : replies) {
-            for (OFFlowStatsEntry entry : reply.getEntries()) {
-                Match match = entry.getMatch();
-                IPv4AddressWithMask prefix;
-                if (match.isExact(MatchField.IPV4_SRC)) {
-                    prefix = match.get(MatchField.IPV4_SRC).withMaskOfLength(32);
-                } else if (match.isPartiallyMasked(MatchField.IPV4_SRC)) {
-                    Masked<IPv4Address> masked = match.getMasked(MatchField.IPV4_SRC);
-                    prefix = masked.getValue().withMask(masked.getMask());
-                } else {
-                    prefix = IPv4AddressWithMask.of("0.0.0.0/0");
-                }
-                long byteCount = entry.getByteCount().getValue();
-                measurements.add(new Measurement(prefix, byteCount));
-            }
-        }
-        LOG.info("Measurements {}: [{}]", dpid, Joiner.on(", ").join(measurements));
-        return measurements;
-    }
 
     // ----------------------------------------------------------------
     // - IOFMessageListener methods
@@ -294,19 +244,18 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
                     updateLoadBalancing(singletonList(non_uniform));
                     writeLoadBalancingFlows(getActiveManagedSwitches(), singletonList(non_uniform));
                 }
-            }, config.getMeasurementInterval(), config.getMeasurementInterval(), TimeUnit.SECONDS);
+            }, 1, config.getMeasurementInterval(), TimeUnit.SECONDS);
             // TODO run a shorter measurement interval the first time?
         }
     }
 
     private void updateMeasurements() {
-        Map<DatapathId, Collection<Measurement>> measurements = new HashMap<>();
-        // TODO parallelize?
-        for (IOFSwitch iofSwitch : getActiveManagedSwitches()) {
-            DatapathId dpid = iofSwitch.getId();
-            measurements.put(dpid, getMeasurements(iofSwitch));
+        if (config.getMeasurementCommands() == null) {
+            measurements = getMeasurements(getActiveManagedSwitches());
+        } else {
+            measurements = getMeasurementsFromSsh(getActiveManagedSwitches());
         }
-        this.measurements = measurements;
+//        LOG.info("Measurements {}: [{}]", dpid, Joiner.on(", ").join(measurements));
     }
 
     private void updateLoadBalancing(Iterable<Strategy> strategies) {
@@ -407,6 +356,147 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
 
             default:
                 throw new UnsupportedOperationException("Strategy " + strategy + " not supported");
+        }
+    }
+
+    private static Map<DatapathId, List<Measurement>> getMeasurements(Iterable<IOFSwitch> switches) {
+        Objects.requireNonNull(switches);
+
+        // TODO parallelize?
+        Map<DatapathId, List<Measurement>> newMeasurements = new HashMap<>();
+        for (IOFSwitch iofSwitch : switches) {
+            DatapathId dpid = iofSwitch.getId();
+            OFFactory factory = iofSwitch.getOFFactory();
+
+            // Build stats requests
+            OFFlowStatsRequest ingressRequest = MessageBuilder.requestIngressMeasurementFlowStats(dpid, factory);
+            OFFlowStatsRequest egressRequest = MessageBuilder.requestEgressMeasurementFlowStats(dpid, factory);
+
+            LOG.info("Getting byte counts from switch {}", dpid);
+            List<OFFlowStatsReply> replies = new ArrayList<>();
+            try {
+                replies.addAll(iofSwitch
+                        .writeStatsRequest(ingressRequest)
+                        .get());
+                replies.addAll(iofSwitch
+                        .writeStatsRequest(egressRequest)
+                        .get());
+            } catch (InterruptedException e) {
+                LOG.info("Interruped while getting byte counts from switch {}", dpid);
+                continue;
+            } catch (ExecutionException e) {
+                LOG.info("Unable to get byte counts from switch {} due to {}", dpid,
+                        ((OFErrorMsgException) e.getCause()).getErrorMessage());
+                continue;
+            }
+            LOG.info("# of stats replies: {}", replies.size());
+
+            // Record prefix and byte count for all flows
+            List<Measurement> measurements = new ArrayList<>();
+            for (OFFlowStatsReply reply : replies) {
+                for (OFFlowStatsEntry entry : reply.getEntries()) {
+                    Match match = entry.getMatch();
+                    IPv4AddressWithMask prefix;
+                    if (match.isExact(MatchField.IPV4_SRC)) {
+                        prefix = match.get(MatchField.IPV4_SRC).withMaskOfLength(32);
+                    } else if (match.isPartiallyMasked(MatchField.IPV4_SRC)) {
+                        Masked<IPv4Address> masked = match.getMasked(MatchField.IPV4_SRC);
+                        prefix = masked.getValue().withMask(masked.getMask());
+                    } else {
+                        prefix = IPv4AddressWithMask.of("0.0.0.0/0");
+                    }
+                    long byteCount = entry.getByteCount().getValue();
+                    measurements.add(new Measurement(prefix, byteCount));
+                }
+            }
+            newMeasurements.put(dpid, measurements);
+        }
+        return newMeasurements;
+    }
+
+    private Map<DatapathId, List<Measurement>> getMeasurementsFromSsh(Iterable<IOFSwitch> switches) {
+        Objects.requireNonNull(switches);
+
+        // TODO parallelize?
+        Map<DatapathId, List<Measurement>> newMeasurements = new HashMap<>();
+        for (IOFSwitch iofSwitch : switches) {
+            DatapathId dpid = iofSwitch.getId();
+            OFFactory factory = iofSwitch.getOFFactory();
+
+            // Build stats requests
+//            List<String> matches = new ArrayList<>();
+//            Matcher matcher = Pattern
+//                    .compile("[\\w.@]+|\"[\\w\\s]*\"")
+//                    .matcher(config.getSshCommands().get(dpid));
+//            while (matcher.find()) {
+//                matches.add(matcher.group());
+//            }
+            MeasurementCommand command = config.getMeasurementCommands().get(dpid);
+            try {
+//                .redirectError(new File("/dev/null"))
+                Process p = new ProcessBuilder("ssh", command.getEndpoint(), command.getCommand()).start();
+                p.waitFor();
+                if (p.exitValue() != 0) {
+                    LOG.warn("ssh exited unsuccessfully. Return code: {}", p.exitValue());
+                } else {
+                    String result = CharStreams.toString(new InputStreamReader(p.getInputStream()));
+                    List<Measurement> parsedMeasurements = parseResult(result, MessageBuilder.getMeasurementTableId(dpid).getValue());
+                    newMeasurements.put(dpid, parsedMeasurements);
+                    LOG.info("Measurements: {}", Joiner.on(", ").join(parsedMeasurements));
+                }
+            } catch (InterruptedException | IOException e) {
+                LOG.warn("Unable to ssh into switch {}", iofSwitch.getId());
+            }
+        }
+        return newMeasurements;
+    }
+
+    private List<Measurement> parseResult(String result, int tableId) {
+        try {
+            List<Measurement> parsedMeasurements = new ArrayList<>();
+            String[] lines = result.trim().split("\n");
+            // Split line into proprties, skipping first line (OFPST_FLOW reply...)
+            for (int i = 1; i < lines.length; i++) {
+                String[] parts = lines[i].trim().split("(, )| ");
+                Map<String, String> properties = new HashMap<>();
+                for (String part : parts) {
+                    String[] partComponents = part.split("=", 2);
+                    properties.put(partComponents[0], partComponents[1]);
+                }
+                if (Integer.parseInt(properties.get("table")) == tableId) {
+                    // Build match
+                    String[] matchParts = properties.get("priority").split(",");
+                    HashMap<String, String> matchProperties = new HashMap<>();
+                    for (int j = 1; j < matchParts.length; j++) {
+                        String matchPart = matchParts[j];
+                        if (matchPart.contains("=")) {
+                            String[] matchPartComponents = matchPart.split("=", 2);
+                            matchProperties.put(matchPartComponents[0], matchPartComponents[1]);
+                        }
+                    }
+                    // Source
+                    IPv4AddressWithMask nwDst = matchProperties.containsKey("nw_dst")
+                            ? IPv4AddressWithMask.of(matchProperties.get("nw_dst")) : null;
+                    // Destination
+                    IPv4AddressWithMask nwSrc = matchProperties.containsKey("nw_src")
+                            ? IPv4AddressWithMask.of(matchProperties.get("nw_src")) : null;
+                    // Bytes
+                    int bytes = Integer.parseInt(properties.get("n_bytes"));
+                    // Measurement
+                    parsedMeasurements.add(new Measurement(nwSrc != null ? nwSrc : nwDst, bytes));
+                }
+            }
+            return parsedMeasurements.stream()
+                    .collect(groupingBy(
+                            Measurement::getPrefix,
+                            reducing((m0, m1) -> new Measurement(m0.getPrefix(), m0.getBytes() + m1.getBytes()))))
+                    .values().stream()
+                    .filter(Optional::isPresent)
+                    .map(Optional::get)
+                    .collect(toList());
+        } catch (Exception e) {
+            LOG.warn("Unable to parse ssh result: {}", result, e);
+            return emptyList();
         }
     }
 
