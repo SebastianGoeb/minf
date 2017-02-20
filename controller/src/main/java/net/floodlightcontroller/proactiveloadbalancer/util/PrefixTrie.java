@@ -149,7 +149,7 @@ public class PrefixTrie<T> {
                 inOrderVisitor.accept(this, prefix);
             }
             if (child1 != null) {
-                child0.traverse(IPUtil.subprefix1(prefix), preOrderVisitor, inOrderVisitor, postOrderVisitor);
+                child1.traverse(IPUtil.subprefix1(prefix), preOrderVisitor, inOrderVisitor, postOrderVisitor);
             }
             if (postOrderVisitor != null) {
                 postOrderVisitor.accept(this, prefix);

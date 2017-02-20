@@ -27,6 +27,7 @@ import org.projectfloodlight.openflow.types.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.*;
@@ -240,11 +241,12 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
             // Start measurement cycle
             collectionFuture = threadPoolService.getScheduledExecutor().scheduleAtFixedRate(() -> {
                 updateMeasurements();
+                writeMeasurementFlows(getActiveManagedSwitches());
                 if (config.getStrategyRanges().keySet().contains(non_uniform)) {
                     updateLoadBalancing(singletonList(non_uniform));
                     writeLoadBalancingFlows(getActiveManagedSwitches(), singletonList(non_uniform));
                 }
-            }, 1, config.getMeasurementInterval(), TimeUnit.SECONDS);
+            }, config.getMeasurementInterval(), config.getMeasurementInterval(), TimeUnit.SECONDS);
             // TODO run a shorter measurement interval the first time?
         }
     }
@@ -255,7 +257,6 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
         } else {
             measurements = getMeasurementsFromSsh(getActiveManagedSwitches());
         }
-//        LOG.info("Measurements {}: [{}]", dpid, Joiner.on(", ").join(measurements));
     }
 
     private void updateLoadBalancing(Iterable<Strategy> strategies) {
@@ -392,7 +393,7 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
             LOG.info("# of stats replies: {}", replies.size());
 
             // Record prefix and byte count for all flows
-            List<Measurement> measurements = new ArrayList<>();
+            List<Measurement> parsedMeasurements = new ArrayList<>();
             for (OFFlowStatsReply reply : replies) {
                 for (OFFlowStatsEntry entry : reply.getEntries()) {
                     Match match = entry.getMatch();
@@ -406,10 +407,11 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
                         prefix = IPv4AddressWithMask.of("0.0.0.0/0");
                     }
                     long byteCount = entry.getByteCount().getValue();
-                    measurements.add(new Measurement(prefix, byteCount));
+                    parsedMeasurements.add(new Measurement(prefix, byteCount));
                 }
             }
-            newMeasurements.put(dpid, measurements);
+            LOG.info("Measurements: {}", Joiner.on(", ").join(parsedMeasurements));
+            newMeasurements.put(dpid, parsedMeasurements);
         }
         return newMeasurements;
     }
@@ -421,20 +423,10 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
         Map<DatapathId, List<Measurement>> newMeasurements = new HashMap<>();
         for (IOFSwitch iofSwitch : switches) {
             DatapathId dpid = iofSwitch.getId();
-            OFFactory factory = iofSwitch.getOFFactory();
 
-            // Build stats requests
-//            List<String> matches = new ArrayList<>();
-//            Matcher matcher = Pattern
-//                    .compile("[\\w.@]+|\"[\\w\\s]*\"")
-//                    .matcher(config.getSshCommands().get(dpid));
-//            while (matcher.find()) {
-//                matches.add(matcher.group());
-//            }
             MeasurementCommand command = config.getMeasurementCommands().get(dpid);
             try {
-//                .redirectError(new File("/dev/null"))
-                Process p = new ProcessBuilder("ssh", command.getEndpoint(), command.getCommand()).start();
+                Process p = new ProcessBuilder("ssh", command.getEndpoint(), command.getCommand()).redirectError(new File("/dev/null")).start();
                 p.waitFor();
                 if (p.exitValue() != 0) {
                     LOG.warn("ssh exited unsuccessfully. Return code: {}", p.exitValue());
@@ -442,7 +434,6 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
                     String result = CharStreams.toString(new InputStreamReader(p.getInputStream()));
                     List<Measurement> parsedMeasurements = parseResult(result, MessageBuilder.getMeasurementTableId(dpid).getValue());
                     newMeasurements.put(dpid, parsedMeasurements);
-                    LOG.info("Measurements: {}", Joiner.on(", ").join(parsedMeasurements));
                 }
             } catch (InterruptedException | IOException e) {
                 LOG.warn("Unable to ssh into switch {}", iofSwitch.getId());

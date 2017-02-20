@@ -7,6 +7,8 @@ import net.floodlightcontroller.proactiveloadbalancer.util.PrefixTrie;
 import org.projectfloodlight.openflow.types.DatapathId;
 import org.projectfloodlight.openflow.types.IPv4Address;
 import org.projectfloodlight.openflow.types.IPv4AddressWithMask;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.*;
 
@@ -15,6 +17,8 @@ import static java.util.Comparator.comparing;
 import static java.util.stream.Collectors.toList;
 
 class FlowBuilder {
+
+    private static final Logger LOG = LoggerFactory.getLogger(FlowBuilder.class);
 
     static List<LoadBalancingFlow> buildFlowsClassic(Config config, List<LoadBalancingFlow> flows, PrefixTrie<Double> traffic) {
         // TODO do this more cleanly
@@ -126,16 +130,21 @@ class FlowBuilder {
     static List<IPv4AddressWithMask> buildMeasurementFlows(Collection<Measurement> measurements, Config config) {
         Objects.requireNonNull(measurements);
 
+        double total = measurements.stream()
+                .mapToLong(Measurement::getBytes)
+                .sum();
+
+        IPv4AddressWithMask rootPrefix = IPUtil.base(config.getClientRange());
+
         // Merge into tree
         PrefixTrie<Double> tree = mergeMeasurements(measurements, config);
 
-        // Expand if above threshold, contract if below
+        // Expand if above threshold, collapse if below
         tree.traversePreOrder((node, prefix) -> {
-            if (node.isRoot()) {
+            double effectiveValue = total != 0 ? node.getValue() : Math.pow(2, rootPrefix.getMask().asCidrMaskLength() - prefix.getMask().asCidrMaskLength());
+            if (effectiveValue > config.getMeasurementThreshold() && node.isLeaf() && prefix.getMask().asCidrMaskLength() < 32) {
                 node.expand(node.getValue() / 2, node.getValue() / 2);
-            } else if (node.getValue() > config.getMeasurementThreshold() && node.isLeaf() && prefix.getMask().asCidrMaskLength() < 32) {
-                node.expand(node.getValue() / 2, node.getValue() / 2);
-            } else if (node.getValue() < config.getMeasurementThreshold() && !node.isLeaf() && !node.isRoot()) {
+            } else if (effectiveValue <= config.getMeasurementThreshold() && !node.isLeaf()) {
                 node.collapse();
             }
         });
@@ -190,8 +199,7 @@ class FlowBuilder {
         tree.traversePreOrder((node, prefix) -> {
             Measurement nextMeasurement = measurementsInPreOrder.peek();
             while (nextMeasurement != null && Objects.equals(prefix, nextMeasurement.getPrefix())) {
-                double fraction = nextMeasurement.getBytes() / total;
-                node.setValue(node.getValue() + (Double.isNaN(fraction) ? 0 : fraction));
+                node.setValue(node.getValue() + (total == 0 ? 0 : nextMeasurement.getBytes() / total));
                 measurementsInPreOrder.remove();
                 nextMeasurement = measurementsInPreOrder.peek();
             }
