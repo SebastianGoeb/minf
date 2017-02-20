@@ -141,7 +141,7 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
                 if (EthType.IPv4 == eth.getEtherType()) {
                     IPv4 ipv4 = (IPv4) eth.getPayload();
                     IPv4Address src = ipv4.getSourceAddress();
-                    if (config.getStrategyRanges().containsKey(traditional)) {
+                    if (config != null && config.getStrategyRanges().containsKey(traditional)) {
                         IPv4AddressRange range = config.getStrategyRanges().get(traditional);
                         if (range.contains(src)) {
                             // If is already being load balanced
@@ -328,7 +328,7 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
             List<IPv4AddressWithMask> flows = FlowBuilder.buildMeasurementFlows(measurements.get(dpid), config);
 
             MessageBuilder.deleteMeasurementFlows(dpid, factory).forEach(iofSwitch::write);
-            MessageBuilder.addMeasurementFlows(dpid, factory, flows).forEach(iofSwitch::write);
+            MessageBuilder.addMeasurementFlows(dpid, factory, vips.get(dpid), flows).forEach(iofSwitch::write);
         }
     }
 

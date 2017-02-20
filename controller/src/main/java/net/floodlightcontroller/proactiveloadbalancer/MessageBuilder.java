@@ -21,21 +21,20 @@ import static java.util.Collections.singletonList;
 
 class MessageBuilder {
 
-    // Constants
-    private static final U64 INGRESS_COOKIE = U64.of(200);
-    private static final U64 EGRESS_COOKIE = U64.of(100);
-    private static final U64 FALLBACK_COOKIE = U64.of(0);
+    // Cookies
+    private static final U64 MEASUREMENT_COOKIE = U64.of(100);
 
+    // Priorities
     private static final int INGRESS_PRIORITY = 200;
     private static final int EGRESS_PRIORITY = 100;
-    private static final int FALLBACK_PRIORITY = 0;
 
-    private static final int INGRESS_MEASUREMENT_TABLE_ID_OFFSET = 1;
+    // Table IDs
+    private static final int MEASUREMENT_TABLE_ID_OFFSET = 1;
     private static final int LOAD_BALANCING_TABLE_ID_OFFSET = 2;
-    private static final int EGRESS_MEASUREMENT_TABLE_ID_OFFSET = 3;
     private static final int FORWARDING_TABLE_ID_OFFSET = 4;
     private static final short NUM_TABLES = 5;
 
+    // Timeout
     private static final int TRADITIONAL_IDLE_TIMEOUT = 60;
 
     // TODO get at runtime?
@@ -88,16 +87,12 @@ class MessageBuilder {
         return (short) ((dpid.getLong() - 1) * NUM_TABLES + 1);
     }
 
-    private static TableId getIngressMeasurementTableId(DatapathId dpid) {
-        return TableId.of(getBaseTableId(dpid) + INGRESS_MEASUREMENT_TABLE_ID_OFFSET);
+    private static TableId getMeasurementTableId(DatapathId dpid) {
+        return TableId.of(getBaseTableId(dpid) + MEASUREMENT_TABLE_ID_OFFSET);
     }
 
     private static TableId getLoadBalancingTableId(DatapathId dpid) {
         return TableId.of(getBaseTableId(dpid) + LOAD_BALANCING_TABLE_ID_OFFSET);
-    }
-
-    private static TableId getEgressMeasurementTableId(DatapathId dpid) {
-        return TableId.of(getBaseTableId(dpid) + EGRESS_MEASUREMENT_TABLE_ID_OFFSET);
     }
 
     private static TableId getForwardingTableId(DatapathId dpid) {
@@ -126,103 +121,78 @@ class MessageBuilder {
         // OpenFlow
         OFInstructions instructions = factory.instructions();
 
-        // Table ids
-        TableId stubTableId = TableId.of(0);
-        TableId ingressMeasurementTableId = getIngressMeasurementTableId(dpid);
-        TableId loadBalancingTableId = getLoadBalancingTableId(dpid);
-
-        List<OFFlowMod> flowMods = new LinkedList<>();
-
-        // Ingress
-        Match ingressMatch = factory
+        // Match
+        Match match = factory
                 .buildMatch()
                 .setExact(MatchField.ETH_TYPE, EthType.IPv4)
-                .setExact(MatchField.IPV4_DST, vip)
                 .build();
 
         // Instructions
-        List<OFInstruction> ingressInstructionList = singletonList(
-                instructions.gotoTable(ingressMeasurementTableId));
+        List<OFInstruction> instructionList = singletonList(
+                instructions.gotoTable(getMeasurementTableId(dpid)));
 
-        flowMods.add(factory
+        return singletonList(factory
                 .buildFlowAdd()
-                .setTableId(stubTableId)
+                .setTableId(TableId.of(0))
                 .setPriority(INGRESS_PRIORITY)
-                .setMatch(ingressMatch)
-                .setInstructions(ingressInstructionList)
+                .setMatch(match)
+                .setInstructions(instructionList)
                 .build());
-
-        // Egress
-        Match egressMatch = factory
-                .buildMatch()
-                .setExact(MatchField.ETH_TYPE, EthType.IPv4)
-                .build();
-
-        // Instructions
-        List<OFInstruction> egressInstructionList = singletonList(
-                instructions.gotoTable(loadBalancingTableId));
-
-        flowMods.add(factory
-                .buildFlowAdd()
-                .setTableId(stubTableId)
-                .setPriority(EGRESS_PRIORITY)
-                .setMatch(egressMatch)
-                .setInstructions(egressInstructionList)
-                .build());
-
-        return flowMods;
     }
 
     // Measurement
-    static List<OFFlowMod> addMeasurementFlows(DatapathId dpid, OFFactory factory, Iterable<IPv4AddressWithMask> flows) {
+    static List<OFFlowMod> addMeasurementFlows(DatapathId dpid, OFFactory factory, IPv4Address vip,
+            Iterable<IPv4AddressWithMask> prefixes) {
         // Preconditions
         Objects.requireNonNull(dpid);
         Objects.requireNonNull(factory);
-        Objects.requireNonNull(flows);
+        Objects.requireNonNull(vip);
+        Objects.requireNonNull(prefixes);
 
-        // OpenFlow intsructions
+        // OpenFlow
         OFInstructions instructions = factory.instructions();
 
-        // Table ids
-        TableId ingressMeasurementTableId = getIngressMeasurementTableId(dpid);
-        TableId loadBalancingTableId = getLoadBalancingTableId(dpid);
-        TableId egressMeasurementTableId = getEgressMeasurementTableId(dpid);
-        TableId forwardingTableId = getForwardingTableId(dpid);
-
-        // Add ingress and egress measurement flows
         List<OFFlowMod> flowMods = new LinkedList<>();
-        for (IPv4AddressWithMask prefix : flows) {
+        for (IPv4AddressWithMask prefix : prefixes) {
+            // Ingress match
             Match ingressMatch = factory
                     .buildMatch()
                     .setExact(MatchField.ETH_TYPE, EthType.IPv4)
-                    // TODO vip?
+                    .setExact(MatchField.IPV4_DST, vip)
                     .setMasked(MatchField.IPV4_SRC, prefix)
                     .build();
 
-            // Ingress
+            // Ingress instructions
+            List<OFInstruction> ingressInstructionList = singletonList(
+                    instructions.gotoTable(getLoadBalancingTableId(dpid)));
+
             flowMods.add(factory
                     .buildFlowAdd()
-                    .setTableId(ingressMeasurementTableId)
-                    .setCookie(INGRESS_COOKIE)
+                    .setTableId(getMeasurementTableId(dpid))
+                    .setCookie(MEASUREMENT_COOKIE)
                     .setPriority(INGRESS_PRIORITY + prefix.getMask().asCidrMaskLength())
                     .setMatch(ingressMatch)
-                    .setInstructions(singletonList(instructions.gotoTable(loadBalancingTableId)))
+                    .setInstructions(ingressInstructionList)
                     .build());
 
+            // Egress match
             Match egressMatch = factory
                     .buildMatch()
                     .setExact(MatchField.ETH_TYPE, EthType.IPv4)
                     .setMasked(MatchField.IPV4_DST, prefix)
                     .build();
 
-            // Egress
+            // Egress instructions
+            List<OFInstruction> egressInstructionList = singletonList(
+                    instructions.gotoTable(getLoadBalancingTableId(dpid)));
+
             flowMods.add(factory
                     .buildFlowAdd()
-                    .setTableId(egressMeasurementTableId)
-                    .setCookie(EGRESS_COOKIE)
+                    .setTableId(getMeasurementTableId(dpid))
+                    .setCookie(MEASUREMENT_COOKIE)
                     .setPriority(EGRESS_PRIORITY + prefix.getMask().asCidrMaskLength())
                     .setMatch(egressMatch)
-                    .setInstructions(singletonList(instructions.gotoTable(forwardingTableId)))
+                    .setInstructions(egressInstructionList)
                     .build());
         }
 
@@ -234,24 +204,11 @@ class MessageBuilder {
         Objects.requireNonNull(dpid);
         Objects.requireNonNull(factory);
 
-        // Delete ingress and egress measurement flows
-        List<OFFlowMod> flowMods = new LinkedList<>();
-
-        // Ingress
-        flowMods.add(factory
+        return singletonList(factory
                 .buildFlowDelete()
-                .setTableId(getIngressMeasurementTableId(dpid))
-                .setCookie(INGRESS_COOKIE)
+                .setTableId(getMeasurementTableId(dpid))
+                .setCookie(MEASUREMENT_COOKIE)
                 .build());
-
-        // Egress
-        flowMods.add(factory
-                .buildFlowDelete()
-                .setTableId(getEgressMeasurementTableId(dpid))
-                .setCookie(EGRESS_COOKIE)
-                .build());
-
-        return flowMods;
     }
 
     static List<OFFlowMod> addFallbackFlows(DatapathId dpid, OFFactory factory) {
@@ -259,35 +216,18 @@ class MessageBuilder {
         Objects.requireNonNull(dpid);
         Objects.requireNonNull(factory);
 
-        // OpenFlow intsructions
+        // OpenFlow
         OFInstructions instructions = factory.instructions();
 
-        // Table ids
-        TableId loadBalancingTableId = getLoadBalancingTableId(dpid);
-        TableId forwardingTableId = getForwardingTableId(dpid);
+        // Instructions
+        List<OFInstruction> instructionList = singletonList(
+                instructions.gotoTable(getLoadBalancingTableId(dpid)));
 
-        // Delete ingress and egress fallback flows
-        List<OFFlowMod> flowMods = new LinkedList<>();
-
-        // Ingress
-        flowMods.add(factory
+        return singletonList(factory
                 .buildFlowAdd()
-                .setTableId(getIngressMeasurementTableId(dpid))
-                .setCookie(FALLBACK_COOKIE)
-                .setPriority(FALLBACK_PRIORITY)
-                .setInstructions(singletonList(instructions.gotoTable(loadBalancingTableId)))
+                .setTableId(getMeasurementTableId(dpid))
+                .setInstructions(instructionList)
                 .build());
-
-        // Egress
-        flowMods.add(factory
-                .buildFlowAdd()
-                .setTableId(getEgressMeasurementTableId(dpid))
-                .setCookie(FALLBACK_COOKIE)
-                .setPriority(FALLBACK_PRIORITY)
-                .setInstructions(singletonList(instructions.gotoTable(forwardingTableId)))
-                .build());
-
-        return flowMods;
     }
 
     // Load Balancing
@@ -304,10 +244,6 @@ class MessageBuilder {
         OFActions actions = factory.actions();
         OFOxms oxms = factory.oxms();
         OFInstructions instructions = factory.instructions();
-
-        // Table ids
-        TableId loadBalancingTableId = getLoadBalancingTableId(dpid);
-        TableId forwardingTableId = getForwardingTableId(dpid);
 
         List<OFFlowMod> flowMods = new LinkedList<>();
         for (LoadBalancingFlow flow : flows) {
@@ -332,11 +268,11 @@ class MessageBuilder {
             // Instructions
             List<OFInstruction> instructionList = Arrays.asList(
                     instructions.applyActions(actionList),
-                    instructions.gotoTable(forwardingTableId));
+                    instructions.gotoTable(getForwardingTableId(dpid)));
 
             Builder builder = factory
                     .buildFlowAdd()
-                    .setTableId(loadBalancingTableId)
+                    .setTableId(getLoadBalancingTableId(dpid))
                     .setPriority(INGRESS_PRIORITY + prefix.getMask().asCidrMaskLength())
                     .setMatch(match)
                     .setCookie(cookie)
@@ -364,10 +300,6 @@ class MessageBuilder {
         OFOxms oxms = factory.oxms();
         OFInstructions instructions = factory.instructions();
 
-        // Table ids
-        TableId loadBalancingTableId = getLoadBalancingTableId(dpid);
-        TableId egressMeasurementTableId = getEgressMeasurementTableId(dpid);
-
         // Match
         Match match = factory
                 .buildMatch()
@@ -383,11 +315,11 @@ class MessageBuilder {
         // Instructions
         List<OFInstruction> instructionList = Arrays.asList(
                 instructions.applyActions(actionList),
-                instructions.gotoTable(egressMeasurementTableId));
+                instructions.gotoTable(getForwardingTableId(dpid)));
 
         return singletonList(factory
                 .buildFlowAdd()
-                .setTableId(loadBalancingTableId)
+                .setTableId(getLoadBalancingTableId(dpid))
                 .setPriority(EGRESS_PRIORITY)
                 .setMatch(match)
                 .setInstructions(instructionList)
@@ -406,11 +338,9 @@ class MessageBuilder {
         OFActions actions = factory.actions();
         OFInstructions instructions = factory.instructions();
 
-        // Table ids
-        TableId loadBalancingTableId = getLoadBalancingTableId(dpid);
-
         List<OFFlowMod> flowMods = new LinkedList<>();
         for (IPv4AddressWithMask prefix : prefixes) {
+
             // Match
             Match match = factory
                     .buildMatch()
@@ -429,7 +359,7 @@ class MessageBuilder {
 
             flowMods.add(factory
                     .buildFlowAdd()
-                    .setTableId(loadBalancingTableId)
+                    .setTableId(getLoadBalancingTableId(dpid))
                     .setPriority(INGRESS_PRIORITY + prefix.getMask().asCidrMaskLength())
                     .setMatch(match)
                     .setInstructions(instructionList)
@@ -445,12 +375,9 @@ class MessageBuilder {
         Objects.requireNonNull(factory);
         Objects.requireNonNull(cookie);
 
-        // Table ids
-        TableId loadBalancingTableId = getLoadBalancingTableId(dpid);
-
         return singletonList(factory
-                .buildFlowDelete()
-                .setTableId(loadBalancingTableId)
+                .buildFlowDeleteStrict()
+                .setTableId(getLoadBalancingTableId(dpid))
                 .setCookie(cookie)
                 .build());
     }
@@ -465,9 +392,6 @@ class MessageBuilder {
         // OpenFlow intsructions
         OFActions actions = factory.actions();
         OFInstructions instructions = factory.instructions();
-
-        // Table ids
-        TableId forwardingTableId = getForwardingTableId(dpid);
 
         List<OFFlowMod> flowMods = new LinkedList<>();
         for (ForwardingFlow flow : flows) {
@@ -490,8 +414,8 @@ class MessageBuilder {
 
             flowMods.add(factory
                     .buildFlowAdd()
-                    .setTableId(forwardingTableId)
-                    .setPriority(EGRESS_PRIORITY + prefix.getMask().asCidrMaskLength())
+                    .setTableId(getForwardingTableId(dpid))
+                    .setPriority(prefix.getMask().asCidrMaskLength())
                     .setMatch(match)
                     .setInstructions(instructionList)
                     .build());
@@ -509,8 +433,8 @@ class MessageBuilder {
         return factory
                 .buildFlowStatsRequest()
                 .setMatch(factory.buildMatch().build())
-                .setTableId(getIngressMeasurementTableId(dpid))
-                .setCookie(INGRESS_COOKIE)
+                .setTableId(getMeasurementTableId(dpid))
+                .setCookie(MEASUREMENT_COOKIE)
                 .build();
     }
 
@@ -522,8 +446,8 @@ class MessageBuilder {
         return factory
                 .buildFlowStatsRequest()
                 .setMatch(factory.buildMatch().build())
-                .setTableId(getEgressMeasurementTableId(dpid))
-                .setCookie(EGRESS_COOKIE)
+                .setTableId(getMeasurementTableId(dpid))
+                .setCookie(MEASUREMENT_COOKIE)
                 .build();
     }
 }
