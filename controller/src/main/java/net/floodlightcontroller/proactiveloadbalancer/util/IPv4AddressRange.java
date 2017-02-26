@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import net.floodlightcontroller.proactiveloadbalancer.serializer.IPv4AddressDeserializer;
 import org.projectfloodlight.openflow.types.IPv4Address;
+import org.projectfloodlight.openflow.types.IPv4AddressWithMask;
 
 import java.util.Objects;
 
@@ -25,9 +26,19 @@ public class IPv4AddressRange {
         this(null, null);
     }
 
-    public IPv4AddressRange(IPv4Address min, IPv4Address max) {
+    private IPv4AddressRange(IPv4Address min, IPv4Address max) {
         this.min = min;
         this.max = max;
+    }
+
+    public static IPv4AddressRange of(IPv4Address min, IPv4Address max) {
+        return new IPv4AddressRange(min, max);
+    }
+
+    public static IPv4AddressRange of(IPv4AddressWithMask prefix) {
+        IPv4Address min = prefix.getValue();
+        IPv4Address max = prefix.getValue().or(prefix.getMask().not());
+        return of(min, max);
     }
 
     public IPv4Address getMin() {

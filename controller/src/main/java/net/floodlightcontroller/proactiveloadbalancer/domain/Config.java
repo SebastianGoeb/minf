@@ -82,7 +82,7 @@ public class Config {
     public Config setStrategyRanges(Map<Strategy, IPv4AddressRange> strategyRanges) {
         this.strategyRanges = strategyRanges;
         this.clientRange = strategyRanges.values().stream()
-                .reduce((r0, r1) -> new IPv4AddressRange(
+                .reduce((r0, r1) -> IPv4AddressRange.of(
                         r0.getMin().compareTo(r1.getMin()) < 0 ? r0.getMin() : r1.getMin(),
                         r0.getMax().compareTo(r1.getMax()) > 0 ? r0.getMax() : r1.getMax()
                 ))
