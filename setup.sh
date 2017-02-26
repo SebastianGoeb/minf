@@ -38,6 +38,7 @@ paths=(
 	"src/main/resources/floodlightloadbalancer.properties"
 	"src/main/resources/META-INF/services/net.floodlightcontroller.core.module.IFloodlightModule"
 	"src/main/java/net/floodlightcontroller/proactiveloadbalancer"
+	"src/test/java/net/floodlightcontroller/proactiveloadbalancer"
 )
 for path in ${paths[@]}; do
 	echo "./$path -> $dir/controller/$path"
