@@ -1,3 +1,5 @@
+#!/bin/bash
+
 # Below commands kill/remove (if one running) openvswitch dependencies
 # (datapathmodule, userspace modules) and restarts them in /usr/local/var/run
 # directory. So run this script with sudo permissions.
@@ -8,7 +10,7 @@ rmmod openvswitch
 modprobe libcrc32c
 modprobe vxlan
 modprobe gre
-insmod $(pwd)/openvswitch.ko
+insmod /lib/modules/`uname -r`/kernel/net/openvswitch/openvswitch.ko
 ovsdb-server --remote=punix:/usr/local/var/run/openvswitch/db.sock \
              --remote=db:Open_vSwitch,Open_vSwitch,manager_options \
              --private-key=db:Open_vSwitch,SSL,private_key \
