@@ -17,10 +17,10 @@ import com.google.gson.JsonSyntaxException;
 
 public class Experiment {
 
-	private static final String ADD_TUNNEL = "ip tun add tun0 mode gre remote {0} dev {1}";
-	private static final String DEL_TUNNEL = "ip tun del tun0";
-	private static final String ADD_IP = "ip addr add {0}/32 dev tun0";
-	private static final String DEL_IP = "ip addr del {0}/32 dev tun0";
+	// private static final String ADD_TUNNEL = "ip tun add tun0 mode gre remote {0} dev {1}";
+	// private static final String DEL_TUNNEL = "ip tun del tun0";
+	private static final String ADD_IP = "ip addr add {0}/32 dev {1}";
+	private static final String DEL_IP = "ip addr del {0}/32 dev {1}";
 	private static final String REQUEST = "wget -O /dev/null --bind-address {0} --limit-rate {1} http://{2}:8080/{3}";
 
 	public String intf;
@@ -29,8 +29,8 @@ public class Experiment {
 
 	public void perform(boolean dryRun) {
 		// Add tunnel
-		String command = MessageFormat.format(ADD_TUNNEL, remoteAddr, intf);
-		exec(command, dryRun);
+		// String command = MessageFormat.format(ADD_TUNNEL, remoteAddr, intf);
+		// exec(command, dryRun);
 
 		// Setup executor
 		ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
@@ -48,7 +48,7 @@ public class Experiment {
 					String localAddress = Util.formatIP(val);
 
 					// Add IP
-					exec(MessageFormat.format(ADD_IP, localAddress), dryRun);
+					exec(MessageFormat.format(ADD_IP, localAddress, intf), dryRun);
 
 					// Request data
 					exec(MessageFormat.format(REQUEST, localAddress, traffic.rate, remoteAddr, traffic.size), dryRun);
@@ -61,7 +61,7 @@ public class Experiment {
 					}
 
 					// Delete IP
-					exec(MessageFormat.format(DEL_IP, localAddress), dryRun);
+					exec(MessageFormat.format(DEL_IP, localAddress, intf), dryRun);
 				}, 0, 1, TimeUnit.NANOSECONDS));
 			}
 
@@ -89,8 +89,8 @@ public class Experiment {
 		}
 
 		// Delete tunnel
-		command = MessageFormat.format(DEL_TUNNEL, remoteAddr, intf);
-		exec(command, dryRun);
+		// command = MessageFormat.format(DEL_TUNNEL, remoteAddr, intf);
+		// exec(command, dryRun);
 	}
 
 	public void exec(String command, boolean dryRun) {
