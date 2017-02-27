@@ -21,7 +21,7 @@ public class Experiment {
 	// private static final String DEL_TUNNEL = "ip tun del tun0";
 	private static final String ADD_IP = "ip addr add {0}/32 dev {1}";
 	private static final String DEL_IP = "ip addr del {0}/32 dev {1}";
-	private static final String REQUEST = "wget -O /dev/null --bind-address {0} --limit-rate {1} http://{2}:8080/{3}";
+	private static final String REQUEST = "wget -O /dev/null --bind-address {0} --limit-rate {1} --tries=1 --timeout=5 http://{2}:8080/{3}";
 
 	public String intf;
 	public String remoteAddr;
@@ -51,13 +51,20 @@ public class Experiment {
 					exec(MessageFormat.format(ADD_IP, localAddress, intf), dryRun);
 
 					// Request data
-					exec(MessageFormat.format(REQUEST, localAddress, traffic.rate, remoteAddr, traffic.size), dryRun);
+					String command = MessageFormat.format(REQUEST, localAddress, traffic.rate, remoteAddr, traffic.size);
+					System.out.println(command);
+					int retval = exec(command, dryRun);
 					if (dryRun) {
 						try {
 							Thread.sleep((long) ((double) Util.parseUnits(traffic.size) / Util.parseUnits(traffic.rate)
 									* 1000));
 						} catch (InterruptedException e) {
 						}
+					}
+					if (retval == 0) {
+						System.out.println(localAddress + "\tsuccess: " + retval);
+					} else {
+						System.out.println(localAddress + "\tfailure: " + retval);
 					}
 
 					// Delete IP
@@ -93,16 +100,20 @@ public class Experiment {
 		// exec(command, dryRun);
 	}
 
-	public void exec(String command, boolean dryRun) {
+	public int exec(String command, boolean dryRun) {
 		try {
-			System.out.println(command);
 			if (!dryRun) {
-				new ProcessBuilder(command.split("\\s+")).redirectOutput(new File("/dev/null"))
-						.redirectErrorStream(true).start().waitFor();
+				Process proc = new ProcessBuilder(command.split("\\s+")).redirectOutput(new File("/dev/null"))
+						.redirectErrorStream(true).start();
+				proc.waitFor();
+				return proc.exitValue();
+			} else {
+				return 0;
 			}
 		} catch (IOException | InterruptedException e) {
 			System.out.println(MessageFormat.format("Error executing: {0}", command));
 			e.printStackTrace();
+			return -1;
 		}
 	}
 
