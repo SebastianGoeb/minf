@@ -392,6 +392,7 @@ class MessageBuilder {
 
         // OpenFlow intsructions
         OFActions actions = factory.actions();
+        OFOxms oxms = factory.oxms();
         OFInstructions instructions = factory.instructions();
 
         List<OFFlowMod> flowMods = new LinkedList<>();
@@ -408,6 +409,11 @@ class MessageBuilder {
             // Actions
             List<OFAction> actionList = singletonList(
                     actions.output(port, Integer.MAX_VALUE));
+
+            if (flow.getPort() == 17) {
+                actionList = new ArrayList<>(actionList);
+                actionList.add(0, actions.setField(oxms.ethDst(DRIVER_MACS.get(IPv4Address.of("10.5.1.2"))))); // FIXME runtime
+            }
 
             // Instructions
             List<OFInstruction> instructionList = singletonList(
