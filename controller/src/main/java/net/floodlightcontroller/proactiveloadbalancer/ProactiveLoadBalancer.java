@@ -432,7 +432,7 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
                     LOG.warn("ssh exited unsuccessfully. Return code: {}", p.exitValue());
                 } else {
                     String result = CharStreams.toString(new InputStreamReader(p.getInputStream()));
-                    List<Measurement> parsedMeasurements = parseResult(result, MessageBuilder.getMeasurementTableId(dpid).getValue());
+                    List<Measurement> parsedMeasurements = SshParser.parseResult(result, MessageBuilder.getMeasurementTableId(dpid).getValue());
                     newMeasurements.put(dpid, parsedMeasurements);
                 }
             } catch (InterruptedException | IOException e) {
@@ -440,55 +440,6 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
             }
         }
         return newMeasurements;
-    }
-
-    private List<Measurement> parseResult(String result, int tableId) {
-        try {
-            List<Measurement> parsedMeasurements = new ArrayList<>();
-            String[] lines = result.trim().split("\n");
-            // Split line into proprties, skipping first line (OFPST_FLOW reply...)
-            for (int i = 1; i < lines.length; i++) {
-                String[] parts = lines[i].trim().split("(, )| ");
-                Map<String, String> properties = new HashMap<>();
-                for (String part : parts) {
-                    String[] partComponents = part.split("=", 2);
-                    properties.put(partComponents[0], partComponents[1]);
-                }
-                if (Integer.parseInt(properties.get("table")) == tableId) {
-                    // Build match
-                    String[] matchParts = properties.get("priority").split(",");
-                    HashMap<String, String> matchProperties = new HashMap<>();
-                    for (int j = 1; j < matchParts.length; j++) {
-                        String matchPart = matchParts[j];
-                        if (matchPart.contains("=")) {
-                            String[] matchPartComponents = matchPart.split("=", 2);
-                            matchProperties.put(matchPartComponents[0], matchPartComponents[1]);
-                        }
-                    }
-                    // Source
-                    IPv4AddressWithMask nwDst = matchProperties.containsKey("nw_dst")
-                            ? IPv4AddressWithMask.of(matchProperties.get("nw_dst")) : null;
-                    // Destination
-                    IPv4AddressWithMask nwSrc = matchProperties.containsKey("nw_src")
-                            ? IPv4AddressWithMask.of(matchProperties.get("nw_src")) : null;
-                    // Bytes
-                    int bytes = Integer.parseInt(properties.get("n_bytes"));
-                    // Measurement
-                    parsedMeasurements.add(new Measurement(nwSrc != null ? nwSrc : nwDst, bytes));
-                }
-            }
-            return parsedMeasurements.stream()
-                    .collect(groupingBy(
-                            Measurement::getPrefix,
-                            reducing((m0, m1) -> new Measurement(m0.getPrefix(), m0.getBytes() + m1.getBytes()))))
-                    .values().stream()
-                    .filter(Optional::isPresent)
-                    .map(Optional::get)
-                    .collect(toList());
-        } catch (Exception e) {
-            LOG.warn("Unable to parse ssh result: {}", result, e);
-            return emptyList();
-        }
     }
 
     private List<IOFSwitch> getActiveManagedSwitches() {
