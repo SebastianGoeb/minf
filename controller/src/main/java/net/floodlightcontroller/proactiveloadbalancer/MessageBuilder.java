@@ -376,9 +376,10 @@ class MessageBuilder {
         Objects.requireNonNull(cookie);
 
         return singletonList(factory
-                .buildFlowDeleteStrict()
+                .buildFlowDelete()
                 .setTableId(getLoadBalancingTableId(dpid))
                 .setCookie(cookie)
+                .setCookieMask(U64.NO_MASK)
                 .build());
     }
 
