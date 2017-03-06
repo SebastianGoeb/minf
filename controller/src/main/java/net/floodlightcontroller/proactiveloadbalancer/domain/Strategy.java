@@ -3,7 +3,7 @@ package net.floodlightcontroller.proactiveloadbalancer.domain;
 import org.projectfloodlight.openflow.types.U64;
 
 public enum Strategy {
-    uniform, non_uniform, traditional;
+    prefix, connection;
 
     public static final int COOKIE_BASE = 100;
 

@@ -37,9 +37,10 @@ import java.util.concurrent.TimeUnit;
 
 import static java.util.Collections.emptyList;
 import static java.util.Collections.singletonList;
-import static java.util.stream.Collectors.*;
-import static net.floodlightcontroller.proactiveloadbalancer.domain.Strategy.non_uniform;
-import static net.floodlightcontroller.proactiveloadbalancer.domain.Strategy.traditional;
+import static java.util.stream.Collectors.toList;
+import static java.util.stream.Collectors.toMap;
+import static net.floodlightcontroller.proactiveloadbalancer.domain.Strategy.connection;
+import static net.floodlightcontroller.proactiveloadbalancer.domain.Strategy.prefix;
 
 public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListener, IOFSwitchListener,
         IProactiveLoadBalancerService {
@@ -88,23 +89,20 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
     public Command receive(IOFSwitch iofSwitch, OFMessage msg, FloodlightContext cntx) {
         switch (msg.getType()) {
             case PACKET_IN:
+                LOG.info("Packet in");
                 Ethernet eth = IFloodlightProviderService.bcStore.get(cntx, IFloodlightProviderService.CONTEXT_PI_PAYLOAD);
                 if (EthType.IPv4 == eth.getEtherType()) {
                     IPv4 ipv4 = (IPv4) eth.getPayload();
-                    IPv4Address src = ipv4.getSourceAddress();
-                    if (config != null && config.getStrategyRanges().containsKey(traditional)) {
-                        IPv4AddressRange range = config.getStrategyRanges().get(traditional);
-                        if (range.contains(src)) {
-                            // If is already being load balanced
-                            if (logicalLoadBalancingFlows.get(traditional).stream().noneMatch(flow -> flow.getPrefix().getValue().equals(src))) {
-                                logicalLoadBalancingFlows.get(traditional).add(new LoadBalancingFlow(src.withMaskOfLength(32), null));
-                                updateLoadBalancing(singletonList(traditional));
-                                writeLoadBalancingFlows(getActiveManagedSwitches(), singletonList(traditional));
-                            }
+                    IPv4Address client = ipv4.getSourceAddress();
+                    if (config != null && config.getStrategyRanges().containsKey(connection)) {
+                        IPv4AddressRange range = config.getStrategyRanges().get(connection);
+                        if (range.contains(client) && isClientUnknown(client)) {
+                            logicalLoadBalancingFlows.get(connection).add(new LoadBalancingFlow(client.withMaskOfLength(32), null));
+                            updateConnectionLoadBalancing();
+                            writeLoadBalancingFlows(getActiveManagedSwitches(), singletonList(connection));
                         }
                     }
                 }
-                LOG.info("Packet in");
                 break;
             case FLOW_REMOVED:
                 LOG.info("Flow removed");
@@ -113,6 +111,12 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
                 break;
         }
         return Command.STOP;
+    }
+
+    private boolean isClientUnknown(IPv4Address client) {
+        return logicalLoadBalancingFlows.get(connection).stream()
+                .map(flow -> flow.getPrefix().getValue())
+                .noneMatch(knownClient -> knownClient.equals(client));
     }
 
     // ----------------------------------------------------------------
@@ -235,16 +239,17 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
             // Initialize load balancing flows
             logicalLoadBalancingFlows = new HashMap<>();
             physicalLoadBalancingFlows = new HashMap<>();
-            updateLoadBalancing(config.getStrategyRanges().keySet());
+            updatePrefixLoadBalancing();
+            updateConnectionLoadBalancing();
             writeLoadBalancingFlows(getActiveManagedSwitches(), config.getStrategyRanges().keySet());
 
             // Start measurement cycle
             collectionFuture = threadPoolService.getScheduledExecutor().scheduleAtFixedRate(() -> {
                 updateMeasurements();
                 writeMeasurementFlows(getActiveManagedSwitches());
-                if (config.getStrategyRanges().keySet().contains(non_uniform)) {
-                    updateLoadBalancing(singletonList(non_uniform));
-                    writeLoadBalancingFlows(getActiveManagedSwitches(), singletonList(non_uniform));
+                if (config.getStrategyRanges().keySet().contains(prefix)) {
+                    updatePrefixLoadBalancing();
+                    writeLoadBalancingFlows(getActiveManagedSwitches(), singletonList(prefix));
                 }
             }, config.getMeasurementInterval(), config.getMeasurementInterval(), TimeUnit.SECONDS);
             // TODO run a shorter measurement interval the first time?
@@ -259,15 +264,23 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
         }
     }
 
-    private void updateLoadBalancing(Iterable<Strategy> strategies) {
-        for (Strategy strategy : strategies) {
-            // Build logical flows
-            List<LoadBalancingFlow> logicalFlows = buildLogicalFlows(strategy);
-            logicalLoadBalancingFlows.put(strategy, logicalFlows);
+    private void updatePrefixLoadBalancing() {
+        // Build logical flows
+        List<LoadBalancingFlow> logicalFlows = buildPrefixLogicalFlows();
+        logicalLoadBalancingFlows.put(prefix, logicalFlows);
 
-            // Build physical flows
-            physicalLoadBalancingFlows.put(strategy, FlowBuilder.buildPhysicalFlows(config, logicalFlows, vips));
-        }
+        // Build physical flows
+        physicalLoadBalancingFlows.put(prefix, FlowBuilder.buildPhysicalFlows(config, logicalFlows, vips));
+    }
+
+    // TODO rework this
+    private void updateConnectionLoadBalancing() {
+        // Build logical flows
+        List<LoadBalancingFlow> logicalFlows = buildConnectionLogicalFlows();
+        logicalLoadBalancingFlows.put(connection, logicalFlows);
+
+        // Build physical flows
+        physicalLoadBalancingFlows.put(connection, FlowBuilder.buildPhysicalFlows(config, logicalFlows, vips));
     }
 
     private void writeMeasurementFlows(Iterable<IOFSwitch> switches) {
@@ -293,11 +306,11 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
                 U64 cookie = strategy.cookie();
                 List<LoadBalancingFlow> flows = physicalLoadBalancingFlows.get(strategy).get(dpid);
 
-                if (strategy != traditional) {
+                if (strategy != connection) {
                     MessageBuilder.deleteLoadBalancingFlows(dpid, factory, cookie).forEach(iofSwitch::write);
                 }
                 // TODO for traditional only write new flows
-                MessageBuilder.addLoadBalancingIngressFlows(dpid, factory, vip, flows, cookie, strategy == traditional).forEach(iofSwitch::write);
+                MessageBuilder.addLoadBalancingIngressFlows(dpid, factory, vip, flows, cookie, strategy == connection).forEach(iofSwitch::write);
             }
         }
     }
@@ -319,8 +332,8 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
             MessageBuilder.addLoadBalancingEgressFlows(dpid, factory, vip).forEach(iofSwitch::write);
 
             // Install traditional load balancer controller flows
-            if (config.getStrategyRanges().containsKey(traditional)) {
-                IPv4AddressRange range = config.getStrategyRanges().get(traditional);
+            if (config.getStrategyRanges().containsKey(connection)) {
+                IPv4AddressRange range = config.getStrategyRanges().get(connection);
                 // TODO subsets for hierarchical load balancing?
                 List<IPv4AddressWithMask> prefixes = IPUtil.nonOverlappingPrefixes(range);
                 MessageBuilder.addLoadBalancingControllerFlows(dpid, factory, vip, prefixes).forEach(iofSwitch::write);
@@ -332,7 +345,39 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
         }
     }
 
-    private List<LoadBalancingFlow> buildLogicalFlows(Strategy strategy) {
+    private List<LoadBalancingFlow> buildPrefixLogicalFlows() {
+        List<WeightedPrefix> doubleMeasurements = null;
+        if (config.isIgnoreMeasurements()) {
+            // Generate fake measurements
+            if (config.getTopology().getServers().isEmpty()) {
+
+            } else {
+                int numberOfServers = config.getTopology().getServers().size();
+                int nextPowerOfTwo = 1 << (32 - Integer.numberOfLeadingZeros(numberOfServers - 1));
+                // FIXME don't use base prefix, you'll go over
+                IPv4AddressWithMask base = IPUtil.base(config.getClientRange());
+                doubleMeasurements = null;
+            }
+        } else {
+            // Convert long measurements to double measurements
+            // TODO remove long measurements eventually
+            doubleMeasurements = measurements.values().stream()
+                    .flatMap(Collection::stream)
+                    .map(msmt -> new WeightedPrefix(msmt.getPrefix(), msmt.getBytes()))
+                    .collect(toList());
+        }
+
+        // Combine dips and weights into list of servers
+        List<Server> servers = config.getTopology().getServers().stream()
+                .map(dip -> new Server(dip, config.getWeights().get(dip)))
+                .collect(toList());
+
+        List<WeightedPrefix> mergedMeasurements = MeasurementMerger.merge(doubleMeasurements, config.getClientRange());
+
+        return GreedyPrefixAssigner.assignPrefixes(mergedMeasurements, servers);
+    }
+
+    private List<LoadBalancingFlow> buildConnectionLogicalFlows() {
         // Merge measurements into single tree
         // TODO refactor into field
         List<Measurement> allMeasurements = measurements.values().stream()
@@ -341,23 +386,10 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
         PrefixTrie<Double> mergedMeasurements = FlowBuilder.mergeMeasurements(allMeasurements, config);
 
         // Previous logical flows
-        List<LoadBalancingFlow> logicalFlows = logicalLoadBalancingFlows.get(strategy);
+        List<LoadBalancingFlow> logicalFlows = logicalLoadBalancingFlows.get(prefix);
 
         // Build logical flows
-        switch (strategy) {
-            case uniform:
-                return FlowBuilder.buildFlowsUniform(config, logicalFlows);
-
-            case non_uniform:
-                return FlowBuilder.buildFlowsNonUniform(config, logicalFlows, mergedMeasurements);
-
-            case traditional:
-                // FIXME this requires server msmts, not client msmts
-                return FlowBuilder.buildFlowsClassic(config, logicalFlows, mergedMeasurements);
-
-            default:
-                throw new UnsupportedOperationException("Strategy " + strategy + " not supported");
-        }
+        return FlowBuilder.buildFlowsClassic(config, logicalFlows, mergedMeasurements);
     }
 
     private static Map<DatapathId, List<Measurement>> getMeasurements(Iterable<IOFSwitch> switches) {
@@ -445,7 +477,7 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
     private List<IOFSwitch> getActiveManagedSwitches() {
         return config.getTopology().getSwitches().stream()
                 .map(dpid -> switchManager.getActiveSwitch(dpid))
-                .filter(ofSwitch -> ofSwitch != null)
+                .filter(Objects::nonNull)
                 .collect(toList());
     }
 }

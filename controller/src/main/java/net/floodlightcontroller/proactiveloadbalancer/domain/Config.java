@@ -48,6 +48,9 @@ public class Config {
     private double measurementThreshold;
 
     @JsonProperty
+    private boolean ignoreMeasurements;
+
+    @JsonProperty
     @JsonSerialize(keyUsing = StdKeySerializer.class)
     @JsonDeserialize(keyUsing = IPv4AddressKeyDeserializer.class)
     private Map<IPv4Address, Double> weights;
@@ -130,6 +133,15 @@ public class Config {
         return this;
     }
 
+    public boolean isIgnoreMeasurements() {
+        return ignoreMeasurements;
+    }
+
+    public Config setIgnoreMeasurements(boolean ignoreMeasurements) {
+        this.ignoreMeasurements = ignoreMeasurements;
+        return this;
+    }
+
     public Map<IPv4Address, Double> getWeights() {
         return weights;
     }
@@ -155,6 +167,7 @@ public class Config {
         Config config = (Config) o;
         return measurementInterval == config.measurementInterval &&
                 Double.compare(config.measurementThreshold, measurementThreshold) == 0 &&
+                ignoreMeasurements == config.ignoreMeasurements &&
                 Objects.equals(vip, config.vip) &&
                 Objects.equals(dVipRange, config.dVipRange) &&
                 Objects.equals(strategyRanges, config.strategyRanges) &&
@@ -173,8 +186,8 @@ public class Config {
                 loadBalancers,
                 measurementInterval,
                 measurementThreshold,
+                ignoreMeasurements,
                 weights,
                 measurementCommands);
     }
-
 }

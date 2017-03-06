@@ -44,4 +44,9 @@ public class Server {
     public int hashCode() {
         return Objects.hash(dip, weight);
     }
+
+    @Override
+    public String toString() {
+        return "{" + dip + ": " + weight + '}';
+    }
 }
