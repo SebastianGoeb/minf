@@ -30,7 +30,7 @@ class GreedyPrefixAssigner {
         double cumulativeMeasurementWeight = 0;
         for (Server server : scaledServers) {
             cumulativeServerWeight += server.getWeight();
-            while (!scaledMeasurements.isEmpty() && cumulativeServerWeight > cumulativeMeasurementWeight + scaledMeasurements.get(0).getWeight() / 2) {
+            while (!scaledMeasurements.isEmpty() && cumulativeServerWeight >= cumulativeMeasurementWeight + scaledMeasurements.get(0).getWeight() / 2) {
                 // Assign prefix to server
                 flows.add(new LoadBalancingFlow(scaledMeasurements.get(0).getPrefix(), server.getDip()));
                 cumulativeMeasurementWeight += scaledMeasurements.get(0).getWeight();

@@ -70,4 +70,65 @@ public class GreedyPrefixAssignerTest extends FloodlightTestCase {
                 new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/8"), IPv4Address.of("10.0.0.1")));
         assertThat(result, equalTo(expectedResult));
     }
+
+    @Test
+    public void assignPrefixes_whenSomeMeasurementsZero_splitPrefixesByWeight() {
+        List<WeightedPrefix> measurements = asList(
+                new WeightedPrefix(IPv4AddressWithMask.of("10.0.0.0/8"), 0),
+                new WeightedPrefix(IPv4AddressWithMask.of("11.0.0.0/8"), 1));
+        List<Server> servers = asList(
+                new Server(IPv4Address.of("10.0.0.1"), 1),
+                new Server(IPv4Address.of("10.0.0.2"), 1));
+
+        List<LoadBalancingFlow> result = GreedyPrefixAssigner.assignPrefixes(measurements, servers);
+
+        List<LoadBalancingFlow> expectedResult = asList(
+                new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/8"), IPv4Address.of("10.0.0.1")),
+                new LoadBalancingFlow(IPv4AddressWithMask.of("11.0.0.0/8"), IPv4Address.of("10.0.0.1")));
+        assertThat(result, equalTo(expectedResult));
+    }
+
+    @Test
+    public void assignPrefixes_whenSomeMeasurementsZero_splitPrefixesByWeight2() {
+        List<WeightedPrefix> measurements = asList(
+                new WeightedPrefix(IPv4AddressWithMask.of("10.0.0.0/10"), 0),
+                new WeightedPrefix(IPv4AddressWithMask.of("10.64.0.0/10"), 0),
+                new WeightedPrefix(IPv4AddressWithMask.of("10.128.0.0/10"), 0),
+                new WeightedPrefix(IPv4AddressWithMask.of("10.192.0.0/10"), 1));
+        List<Server> servers = asList(
+                new Server(IPv4Address.of("10.0.0.2"), 2),
+                new Server(IPv4Address.of("10.0.0.3"), 1),
+                new Server(IPv4Address.of("10.0.0.4"), 1));
+
+        List<LoadBalancingFlow> result = GreedyPrefixAssigner.assignPrefixes(measurements, servers);
+
+        List<LoadBalancingFlow> expectedResult = asList(
+                new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/10"), IPv4Address.of("10.0.0.2")),
+                new LoadBalancingFlow(IPv4AddressWithMask.of("10.64.0.0/10"), IPv4Address.of("10.0.0.2")),
+                new LoadBalancingFlow(IPv4AddressWithMask.of("10.128.0.0/10"), IPv4Address.of("10.0.0.2")),
+                new LoadBalancingFlow(IPv4AddressWithMask.of("10.192.0.0/10"), IPv4Address.of("10.0.0.2")));
+        assertThat(result, equalTo(expectedResult));
+    }
+
+    @Test
+    public void assignPrefixes_whenLastMeasurementsZero_splitPrefixesByWeight3() {
+        List<WeightedPrefix> measurements = asList(
+                new WeightedPrefix(IPv4AddressWithMask.of("10.0.0.0/10"), 1),
+                new WeightedPrefix(IPv4AddressWithMask.of("10.64.0.0/10"), 0),
+                new WeightedPrefix(IPv4AddressWithMask.of("10.128.0.0/10"), 0),
+                new WeightedPrefix(IPv4AddressWithMask.of("10.192.0.0/10"), 0));
+        List<Server> servers = asList(
+                new Server(IPv4Address.of("10.0.0.2"), 2),
+                new Server(IPv4Address.of("10.0.0.3"), 1),
+                new Server(IPv4Address.of("10.0.0.4"), 1));
+
+        List<LoadBalancingFlow> result = GreedyPrefixAssigner.assignPrefixes(measurements, servers);
+
+        List<LoadBalancingFlow> expectedResult = asList(
+                new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/10"), IPv4Address.of("10.0.0.2")),
+                new LoadBalancingFlow(IPv4AddressWithMask.of("10.64.0.0/10"), IPv4Address.of("10.0.0.4")),
+                new LoadBalancingFlow(IPv4AddressWithMask.of("10.128.0.0/10"), IPv4Address.of("10.0.0.4")),
+                new LoadBalancingFlow(IPv4AddressWithMask.of("10.192.0.0/10"), IPv4Address.of("10.0.0.4")));
+        assertThat(result, equalTo(expectedResult));
+    }
 }
