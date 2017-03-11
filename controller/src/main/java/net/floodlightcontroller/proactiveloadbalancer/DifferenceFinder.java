@@ -88,17 +88,17 @@ class DifferenceFinder {
      * Finds prefixes that should be routed to controller during transition
      * @param flowsOld list of flows before transition
      * @param flowsNew list of flows after transition
-     * @return list of prefixes to route to controller
+     * @return list of prefixes to route to controller along with old and new IP
      */
-    static List<IPv4AddressWithMask> findDifferences(List<LoadBalancingFlow> flowsOld,
+    static List<Transition> findDifferences(List<LoadBalancingFlow> flowsOld,
             List<LoadBalancingFlow> flowsNew) {
-        List<IPv4AddressWithMask> differences = new ArrayList<>();
+        List<Transition> transitions = new ArrayList<>();
         for (Transition transition : transitions(flowsOld, flowsNew)) {
             if (requiresController(transition)) {
-                differences.add(transition.getPrefix());
+                transitions.add(transition);
             }
         }
-        return differences;
+        return transitions;
     }
 
     // Helper

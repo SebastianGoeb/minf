@@ -12,7 +12,6 @@ import java.util.List;
 import static java.util.Arrays.asList;
 import static java.util.Collections.emptyList;
 import static java.util.Collections.singletonList;
-import static java.util.Comparator.comparing;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
@@ -121,31 +120,31 @@ public class DifferenceFinderTest extends FloodlightTestCase {
     @Test
     public void transitions_whenOldSmaller_returnsSmaller() {
         List<LoadBalancingFlow> flowsOld = asList(
-                new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/8"), IPv4Address.of("10.0.0.1")),
-                new LoadBalancingFlow(IPv4AddressWithMask.of("11.0.0.0/8"), IPv4Address.of("10.0.0.2")));
+                new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/9"), IPv4Address.of("10.0.0.1")),
+                new LoadBalancingFlow(IPv4AddressWithMask.of("10.128.0.0/9"), IPv4Address.of("10.0.0.2")));
         List<LoadBalancingFlow> flowsNew = singletonList(
-                new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/7"), IPv4Address.of("10.0.0.3")));
+                new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/8"), IPv4Address.of("10.0.0.3")));
 
         List<Transition> result = DifferenceFinder.transitions(flowsOld, flowsNew);
 
         assertThat(result, equalTo(asList(
-                new Transition(IPv4AddressWithMask.of("10.0.0.0/8"), IPv4Address.of("10.0.0.1"), IPv4Address.of("10.0.0.3")),
-                new Transition(IPv4AddressWithMask.of("11.0.0.0/8"), IPv4Address.of("10.0.0.2"), IPv4Address.of("10.0.0.3")))));
+                new Transition(IPv4AddressWithMask.of("10.0.0.0/9"), IPv4Address.of("10.0.0.1"), IPv4Address.of("10.0.0.3")),
+                new Transition(IPv4AddressWithMask.of("10.128.0.0/9"), IPv4Address.of("10.0.0.2"), IPv4Address.of("10.0.0.3")))));
     }
 
     @Test
     public void transitions_whenNewSmaller_returnsSmaller() {
         List<LoadBalancingFlow> flowsOld = singletonList(
-                new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/7"), IPv4Address.of("10.0.0.1")));
+                new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/8"), IPv4Address.of("10.0.0.1")));
         List<LoadBalancingFlow> flowsNew = asList(
-                new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/8"), IPv4Address.of("10.0.0.2")),
-                new LoadBalancingFlow(IPv4AddressWithMask.of("11.0.0.0/8"), IPv4Address.of("10.0.0.3")));
+                new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/9"), IPv4Address.of("10.0.0.2")),
+                new LoadBalancingFlow(IPv4AddressWithMask.of("10.128.0.0/9"), IPv4Address.of("10.0.0.3")));
 
         List<Transition> result = DifferenceFinder.transitions(flowsOld, flowsNew);
 
         assertThat(result, equalTo(asList(
-                new Transition(IPv4AddressWithMask.of("10.0.0.0/8"), IPv4Address.of("10.0.0.1"), IPv4Address.of("10.0.0.2")),
-                new Transition(IPv4AddressWithMask.of("11.0.0.0/8"), IPv4Address.of("10.0.0.1"), IPv4Address.of("10.0.0.3")))));
+                new Transition(IPv4AddressWithMask.of("10.0.0.0/9"), IPv4Address.of("10.0.0.1"), IPv4Address.of("10.0.0.2")),
+                new Transition(IPv4AddressWithMask.of("10.128.0.0/9"), IPv4Address.of("10.0.0.1"), IPv4Address.of("10.0.0.3")))));
     }
 
     // Tests for difference finder
@@ -154,7 +153,7 @@ public class DifferenceFinderTest extends FloodlightTestCase {
         List<LoadBalancingFlow> flowsOld = emptyList();
         List<LoadBalancingFlow> flowsNew = emptyList();
 
-        List<IPv4AddressWithMask> result = DifferenceFinder.findDifferences(flowsOld, flowsNew);
+        List<Transition> result = DifferenceFinder.findDifferences(flowsOld, flowsNew);
 
         assertThat(result, equalTo(emptyList()));
     }
@@ -166,7 +165,7 @@ public class DifferenceFinderTest extends FloodlightTestCase {
         List<LoadBalancingFlow> flowsNew = singletonList(
                 new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/8"), IPv4Address.of("10.0.0.1")));
 
-        List<IPv4AddressWithMask> result = DifferenceFinder.findDifferences(flowsOld, flowsNew);
+        List<Transition> result = DifferenceFinder.findDifferences(flowsOld, flowsNew);
 
         assertThat(result, equalTo(emptyList()));
     }
@@ -180,7 +179,7 @@ public class DifferenceFinderTest extends FloodlightTestCase {
                 new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/8"), IPv4Address.of("10.0.0.1")),
                 new LoadBalancingFlow(IPv4AddressWithMask.of("11.0.0.0/8"), IPv4Address.of("10.0.0.2")));
 
-        List<IPv4AddressWithMask> result = DifferenceFinder.findDifferences(flowsOld, flowsNew);
+        List<Transition> result = DifferenceFinder.findDifferences(flowsOld, flowsNew);
 
         assertThat(result, equalTo(emptyList()));
     }
@@ -194,75 +193,75 @@ public class DifferenceFinderTest extends FloodlightTestCase {
                 new LoadBalancingFlow(IPv4AddressWithMask.of("11.0.0.0/8"), IPv4Address.of("10.0.0.2")),
                 new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/8"), IPv4Address.of("10.0.0.1")));
 
-        List<IPv4AddressWithMask> result = DifferenceFinder.findDifferences(flowsOld, flowsNew);
+        List<Transition> result = DifferenceFinder.findDifferences(flowsOld, flowsNew);
 
         assertThat(result, equalTo(emptyList()));
     }
 
     @Test
-    public void findDifferences_whenOldPrefixesNull_returnsEmptyList() {
+    public void findDifferences_whenOldFlowsNull_returnsEmptyList() {
         List<LoadBalancingFlow> flowsOld = singletonList(
                 new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/8"), null));
         List<LoadBalancingFlow> flowsNew = singletonList(
                 new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/8"), IPv4Address.of("10.0.0.1")));
 
-        List<IPv4AddressWithMask> result = DifferenceFinder.findDifferences(flowsOld, flowsNew);
+        List<Transition> result = DifferenceFinder.findDifferences(flowsOld, flowsNew);
 
         assertThat(result, equalTo(emptyList()));
     }
 
     @Test
-    public void findDifferences_whenNewPrefixesNull_returnsNewPrefixes() {
+    public void findDifferences_whenNewFlowsNull_returnsNewPrefixes() {
         List<LoadBalancingFlow> flowsOld = singletonList(
                 new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/8"), IPv4Address.of("10.0.0.1")));
         List<LoadBalancingFlow> flowsNew = singletonList(
                 new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/8"), null));
 
-        List<IPv4AddressWithMask> result = DifferenceFinder.findDifferences(flowsOld, flowsNew);
+        List<Transition> result = DifferenceFinder.findDifferences(flowsOld, flowsNew);
 
         assertThat(result, equalTo(singletonList(
-                IPv4AddressWithMask.of("10.0.0.0/8"))));
+                new Transition(IPv4AddressWithMask.of("10.0.0.0/8"), IPv4Address.of("10.0.0.1"), null))));
     }
 
     @Test
-    public void findDifferences_whenNewPrefixesDifferent_returnsNewPrefixes() {
+    public void findDifferences_whenNewFlowsDifferent_returnsNewPrefixes() {
         List<LoadBalancingFlow> flowsOld = singletonList(
                 new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/8"), IPv4Address.of("10.0.0.1")));
         List<LoadBalancingFlow> flowsNew = singletonList(
                 new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/8"), IPv4Address.of("10.0.0.2")));
 
-        List<IPv4AddressWithMask> result = DifferenceFinder.findDifferences(flowsOld, flowsNew);
+        List<Transition> result = DifferenceFinder.findDifferences(flowsOld, flowsNew);
 
         assertThat(result, equalTo(singletonList(
-                IPv4AddressWithMask.of("10.0.0.0/8"))));
+                new Transition(IPv4AddressWithMask.of("10.0.0.0/8"), IPv4Address.of("10.0.0.1"), IPv4Address.of("10.0.0.2")))));
     }
 
     @Test
-    public void findDifferences_whenNewPrefixesSmaller_returnsSmallerAndDifferentPrefixes() {
+    public void findDifferences_whenNewFlowsSmaller_returnsSmallerAndDifferentPrefixes() {
         List<LoadBalancingFlow> flowsOld = singletonList(
-                new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/7"), IPv4Address.of("10.0.0.1")));
+                new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/8"), IPv4Address.of("10.0.0.1")));
         List<LoadBalancingFlow> flowsNew = asList(
-                new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/8"), IPv4Address.of("10.0.0.1")),
-                new LoadBalancingFlow(IPv4AddressWithMask.of("11.0.0.0/8"), IPv4Address.of("10.0.0.2")));
+                new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/9"), IPv4Address.of("10.0.0.1")),
+                new LoadBalancingFlow(IPv4AddressWithMask.of("10.128.0.0/9"), IPv4Address.of("10.0.0.2")));
 
-        List<IPv4AddressWithMask> result = DifferenceFinder.findDifferences(flowsOld, flowsNew);
+        List<Transition> result = DifferenceFinder.findDifferences(flowsOld, flowsNew);
 
         assertThat(result, equalTo(singletonList(
-                IPv4AddressWithMask.of("11.0.0.0/8"))));
+                new Transition(IPv4AddressWithMask.of("10.128.0.0/9"), IPv4Address.of("10.0.0.1"), IPv4Address.of("10.0.0.2")))));
     }
 
     @Test
-    public void findDifferences_whenOldPrefixesSmaller_returnsSmallerAndDifferentPrefixes() {
+    public void findDifferences_whenOldFlowsSmaller_returnsSmallerAndDifferentPrefixes() {
         List<LoadBalancingFlow> flowsOld = asList(
-                new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/8"), IPv4Address.of("10.0.0.1")),
-                new LoadBalancingFlow(IPv4AddressWithMask.of("11.0.0.0/8"), IPv4Address.of("10.0.0.2")));
+                new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/9"), IPv4Address.of("10.0.0.1")),
+                new LoadBalancingFlow(IPv4AddressWithMask.of("10.128.0.0/9"), IPv4Address.of("10.0.0.2")));
         List<LoadBalancingFlow> flowsNew = singletonList(
-                new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/7"), IPv4Address.of("10.0.0.2")));
+                new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/8"), IPv4Address.of("10.0.0.2")));
 
-        List<IPv4AddressWithMask> result = DifferenceFinder.findDifferences(flowsOld, flowsNew);
+        List<Transition> result = DifferenceFinder.findDifferences(flowsOld, flowsNew);
 
         assertThat(result, equalTo(singletonList(
-                IPv4AddressWithMask.of("10.0.0.0/8"))));
+                new Transition(IPv4AddressWithMask.of("10.0.0.0/9"), IPv4Address.of("10.0.0.1"), IPv4Address.of("10.0.0.2")))));
     }
 
 }

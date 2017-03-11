@@ -85,4 +85,8 @@ public class Topology {
     public int hashCode() {
         return Objects.hash(servers, switches, downlinksToServers, downlinksToSwitches);
     }
+
+    public boolean isCoreSwitch(DatapathId dpid) {
+        return getUplinksToClients().containsKey(dpid);
+    }
 }

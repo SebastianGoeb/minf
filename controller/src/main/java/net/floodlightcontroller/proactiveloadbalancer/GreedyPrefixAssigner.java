@@ -4,19 +4,19 @@ import net.floodlightcontroller.proactiveloadbalancer.domain.LoadBalancingFlow;
 import net.floodlightcontroller.proactiveloadbalancer.domain.Server;
 import net.floodlightcontroller.proactiveloadbalancer.domain.WeightedPrefix;
 import org.projectfloodlight.openflow.types.IPv4Address;
+import org.projectfloodlight.openflow.types.IPv4AddressWithMask;
 
 import java.util.ArrayList;
 import java.util.List;
 
-import static java.util.Collections.emptyList;
+import static java.util.Collections.singletonList;
 import static java.util.stream.Collectors.toList;
 
 class GreedyPrefixAssigner {
-    private static final List<LoadBalancingFlow> DEFAULT_FLOWS = emptyList();
 
-    static List<LoadBalancingFlow> assignPrefixes(List<WeightedPrefix> measurements, List<Server> servers) {
+    static List<LoadBalancingFlow> assignPrefixes(IPv4AddressWithMask range, List<WeightedPrefix> measurements, List<Server> servers) {
         if (servers.isEmpty()) {
-            return DEFAULT_FLOWS;
+            return getDefaultFlows(range);
         } else if (servers.size() == 1) {
             return assignPrefixesToServer(measurements, servers.get(0).getDip());
         }
@@ -39,6 +39,10 @@ class GreedyPrefixAssigner {
         }
 
         return flows;
+    }
+
+    private static List<LoadBalancingFlow> getDefaultFlows(IPv4AddressWithMask range) {
+        return singletonList(new LoadBalancingFlow(range, null));
     }
 
     private static List<WeightedPrefix> scaleMeasurementsToTotalOne(List<WeightedPrefix> measurements) {

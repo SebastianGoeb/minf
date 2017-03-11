@@ -18,13 +18,16 @@ import static org.junit.Assert.assertThat;
 
 public class GreedyPrefixAssignerTest extends FloodlightTestCase {
 
+    IPv4AddressWithMask RANGE = IPv4AddressWithMask.of("10.0.0.0/8");
+    List<LoadBalancingFlow> DEFAULT= singletonList(new LoadBalancingFlow(RANGE, null));
+
     @Test
     public void assignPrefixes_whenEmptyServers_returnsDefault() {
         List<Server> servers = emptyList();
 
-        List<LoadBalancingFlow> result = GreedyPrefixAssigner.assignPrefixes(null, servers);
+        List<LoadBalancingFlow> result = GreedyPrefixAssigner.assignPrefixes(RANGE, null, servers);
 
-        assertThat(result, equalTo(emptyList()));
+        assertThat(result, equalTo(DEFAULT));
     }
 
     @Test
@@ -34,7 +37,7 @@ public class GreedyPrefixAssignerTest extends FloodlightTestCase {
         List<Server> servers = singletonList(
                 new Server(IPv4Address.of("10.0.0.1"), 1));
 
-        List<LoadBalancingFlow> result = GreedyPrefixAssigner.assignPrefixes(measurements, servers);
+        List<LoadBalancingFlow> result = GreedyPrefixAssigner.assignPrefixes(RANGE, measurements, servers);
 
         List<LoadBalancingFlow> expectedResult = singletonList(
                 new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/8"), IPv4Address.of("10.0.0.1")));
@@ -49,7 +52,7 @@ public class GreedyPrefixAssignerTest extends FloodlightTestCase {
                 new Server(IPv4Address.of("10.0.0.1"), 1),
                 new Server(IPv4Address.of("10.0.0.2"), 2));
 
-        List<LoadBalancingFlow> result = GreedyPrefixAssigner.assignPrefixes(measurements, servers);
+        List<LoadBalancingFlow> result = GreedyPrefixAssigner.assignPrefixes(RANGE, measurements, servers);
 
         List<LoadBalancingFlow> expectedResult = singletonList(
                 new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/8"), IPv4Address.of("10.0.0.2")));
@@ -64,7 +67,7 @@ public class GreedyPrefixAssignerTest extends FloodlightTestCase {
                 new Server(IPv4Address.of("10.0.0.1"), 2),
                 new Server(IPv4Address.of("10.0.0.2"), 1));
 
-        List<LoadBalancingFlow> result = GreedyPrefixAssigner.assignPrefixes(measurements, servers);
+        List<LoadBalancingFlow> result = GreedyPrefixAssigner.assignPrefixes(RANGE, measurements, servers);
 
         List<LoadBalancingFlow> expectedResult = singletonList(
                 new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/8"), IPv4Address.of("10.0.0.1")));
@@ -80,7 +83,7 @@ public class GreedyPrefixAssignerTest extends FloodlightTestCase {
                 new Server(IPv4Address.of("10.0.0.1"), 1),
                 new Server(IPv4Address.of("10.0.0.2"), 1));
 
-        List<LoadBalancingFlow> result = GreedyPrefixAssigner.assignPrefixes(measurements, servers);
+        List<LoadBalancingFlow> result = GreedyPrefixAssigner.assignPrefixes(RANGE, measurements, servers);
 
         List<LoadBalancingFlow> expectedResult = asList(
                 new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/8"), IPv4Address.of("10.0.0.1")),
@@ -100,7 +103,7 @@ public class GreedyPrefixAssignerTest extends FloodlightTestCase {
                 new Server(IPv4Address.of("10.0.0.3"), 1),
                 new Server(IPv4Address.of("10.0.0.4"), 1));
 
-        List<LoadBalancingFlow> result = GreedyPrefixAssigner.assignPrefixes(measurements, servers);
+        List<LoadBalancingFlow> result = GreedyPrefixAssigner.assignPrefixes(RANGE, measurements, servers);
 
         List<LoadBalancingFlow> expectedResult = asList(
                 new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/10"), IPv4Address.of("10.0.0.2")),
@@ -122,7 +125,7 @@ public class GreedyPrefixAssignerTest extends FloodlightTestCase {
                 new Server(IPv4Address.of("10.0.0.3"), 1),
                 new Server(IPv4Address.of("10.0.0.4"), 1));
 
-        List<LoadBalancingFlow> result = GreedyPrefixAssigner.assignPrefixes(measurements, servers);
+        List<LoadBalancingFlow> result = GreedyPrefixAssigner.assignPrefixes(RANGE, measurements, servers);
 
         List<LoadBalancingFlow> expectedResult = asList(
                 new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/10"), IPv4Address.of("10.0.0.2")),

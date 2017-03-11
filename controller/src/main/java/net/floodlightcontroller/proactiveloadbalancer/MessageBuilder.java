@@ -2,6 +2,7 @@ package net.floodlightcontroller.proactiveloadbalancer;
 
 import net.floodlightcontroller.proactiveloadbalancer.domain.ForwardingFlow;
 import net.floodlightcontroller.proactiveloadbalancer.domain.LoadBalancingFlow;
+import net.floodlightcontroller.proactiveloadbalancer.domain.Transition;
 import org.projectfloodlight.openflow.protocol.OFFactory;
 import org.projectfloodlight.openflow.protocol.OFFlowAdd.Builder;
 import org.projectfloodlight.openflow.protocol.OFFlowMod;
@@ -14,17 +15,21 @@ import org.projectfloodlight.openflow.protocol.match.Match;
 import org.projectfloodlight.openflow.protocol.match.MatchField;
 import org.projectfloodlight.openflow.protocol.oxm.OFOxms;
 import org.projectfloodlight.openflow.types.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.*;
 
 import static java.util.Collections.singletonList;
 
 class MessageBuilder {
+    private static final Logger LOG = LoggerFactory.getLogger(MessageBuilder.class);
 
     // Cookies
     private static final U64 MEASUREMENT_COOKIE = U64.of(100);
 
     // Priorities
+    private static final int TRANSITION_PRIORITY = 300;
     private static final int INGRESS_PRIORITY = 200;
     private static final int EGRESS_PRIORITY = 100;
 
@@ -35,7 +40,7 @@ class MessageBuilder {
     private static final short NUM_TABLES = 5;
 
     // Timeout
-    private static final int TRADITIONAL_IDLE_TIMEOUT = 60;
+    private static final int CONNECTION_IDLE_TIMEOUT = 60;
 
     // TODO get at runtime?
     private static final MacAddress SWITCH_MAC = MacAddress.of("00:00:0a:05:01:0c");
@@ -279,7 +284,7 @@ class MessageBuilder {
                     .setInstructions(instructionList);
 
             if (timeout) {
-                builder.setIdleTimeout(TRADITIONAL_IDLE_TIMEOUT);
+                builder.setIdleTimeout(CONNECTION_IDLE_TIMEOUT);
             }
 
             flowMods.add(builder.build());
@@ -363,6 +368,51 @@ class MessageBuilder {
                     .setPriority(INGRESS_PRIORITY + prefix.getMask().asCidrMaskLength())
                     .setMatch(match)
                     .setInstructions(instructionList)
+                    .build());
+        }
+
+        return flowMods;
+    }
+
+    static List<OFFlowMod> addLoadBalancingTransitionFlows(DatapathId dpid, OFFactory factory, IPv4Address vip,
+            Iterable<Transition> transitions, int timeout) {
+        // Preconditions
+        Objects.requireNonNull(dpid);
+        Objects.requireNonNull(factory);
+        Objects.requireNonNull(vip);
+        Objects.requireNonNull(transitions);
+
+        // OpenFlow
+        OFActions actions = factory.actions();
+        OFInstructions instructions = factory.instructions();
+
+        List<OFFlowMod> flowMods = new LinkedList<>();
+        for (Transition transition : transitions) {
+            IPv4AddressWithMask prefix = transition.getPrefix();
+
+            // Match
+            Match match = factory
+                    .buildMatch()
+                    .setExact(MatchField.ETH_TYPE, EthType.IPv4)
+                    .setExact(MatchField.IPV4_DST, vip)
+                    .setMasked(MatchField.IPV4_SRC, prefix)
+                    .build();
+
+            // Actions
+            List<OFAction> actionList = singletonList(
+                    actions.output(OFPort.CONTROLLER, Integer.MAX_VALUE));
+
+            // Instructions
+            List<OFInstruction> instructionList = singletonList(
+                    instructions.applyActions(actionList));
+
+            flowMods.add(factory
+                    .buildFlowAdd()
+                    .setTableId(getLoadBalancingTableId(dpid))
+                    .setPriority(TRANSITION_PRIORITY + prefix.getMask().asCidrMaskLength())
+                    .setMatch(match)
+                    .setInstructions(instructionList)
+                    .setHardTimeout(timeout)
                     .build());
         }
 

@@ -13,6 +13,7 @@ import net.floodlightcontroller.core.module.IFloodlightModule;
 import net.floodlightcontroller.core.module.IFloodlightService;
 import net.floodlightcontroller.packet.Ethernet;
 import net.floodlightcontroller.packet.IPv4;
+import net.floodlightcontroller.packet.TCP;
 import net.floodlightcontroller.proactiveloadbalancer.domain.*;
 import net.floodlightcontroller.proactiveloadbalancer.util.IPUtil;
 import net.floodlightcontroller.proactiveloadbalancer.util.IPv4AddressRange;
@@ -65,6 +66,7 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
     // Runtime stuff
     private Map<DatapathId, List<Measurement>> measurements;
     private Map<Strategy, List<LoadBalancingFlow>> logicalLoadBalancingFlows;
+    private List<Transition> transitions;
     private Map<Strategy, Map<DatapathId, List<LoadBalancingFlow>>> physicalLoadBalancingFlows;
 
     // ----------------------------------------------------------------
@@ -89,17 +91,17 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
     public Command receive(IOFSwitch iofSwitch, OFMessage msg, FloodlightContext cntx) {
         switch (msg.getType()) {
             case PACKET_IN:
-                LOG.info("Packet in");
                 Ethernet eth = IFloodlightProviderService.bcStore.get(cntx, IFloodlightProviderService.CONTEXT_PI_PAYLOAD);
                 if (EthType.IPv4 == eth.getEtherType()) {
                     IPv4 ipv4 = (IPv4) eth.getPayload();
                     IPv4Address client = ipv4.getSourceAddress();
-                    if (config != null && config.getStrategyRanges().containsKey(connection)) {
-                        IPv4AddressRange range = config.getStrategyRanges().get(connection);
-                        if (range.contains(client) && isClientUnknown(client)) {
-                            logicalLoadBalancingFlows.get(connection).add(new LoadBalancingFlow(client.withMaskOfLength(32), null));
-                            updateConnectionLoadBalancing();
-                            writeLoadBalancingFlows(getActiveManagedSwitches(), singletonList(connection));
+                    if (config != null) {
+                        IPv4AddressRange connectionRange = config.getStrategyRanges().get(connection);
+                        IPv4AddressRange prefixRange = config.getStrategyRanges().get(prefix);
+                        if (connectionRange != null && connectionRange.contains(client)) {
+                            handleClientConnection(client);
+                        } else if (prefixRange != null && prefixRange.contains(client)) {
+                            handleClientTransition(client, ipv4);
                         }
                     }
                 }
@@ -111,6 +113,36 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
                 break;
         }
         return Command.STOP;
+    }
+
+    private void handleClientConnection(IPv4Address client) {
+        if (isClientUnknown(client)) {
+            LOG.info("Packet in. Handle connection: {} -> random", client);
+            logicalLoadBalancingFlows.get(connection).add(new LoadBalancingFlow(client.withMaskOfLength(32), null));
+            updateConnectionLoadBalancing();
+            writeLoadBalancingFlows(getActiveManagedSwitches(), singletonList(connection));
+        }
+    }
+
+    private void handleClientTransition(IPv4Address client, IPv4 ipv4) {
+        int FLAG_SYN = 0x2;
+        boolean isNewClient = ipv4.getProtocol() != IpProtocol.TCP || (((TCP) ipv4.getPayload()).getFlags() & FLAG_SYN) != 0;
+        Transition transition = transitions.stream()
+                .filter(t -> t.getPrefix().contains(client))
+                .findFirst()
+                .orElse(null);
+        LoadBalancingFlow flow = new LoadBalancingFlow(client.withMaskOfLength(32), isNewClient ? transition.getIpNew() : transition.getIpOld());
+        LOG.info("Packet in. Handle transition: {} -> {}", client, flow.getDip());
+
+        Map<DatapathId, List<LoadBalancingFlow>> physicalFlows = FlowBuilder.buildPhysicalFlows(config, singletonList(flow), vips);
+        LOG.info("Physical flows: {}", physicalFlows);
+        for (IOFSwitch iofSwitch : getActiveManagedSwitches()) {
+            DatapathId dpid = iofSwitch.getId();
+            OFFactory factory = iofSwitch.getOFFactory();
+            IPv4Address vip = vips.get(dpid);
+            List<LoadBalancingFlow> flows = physicalFlows.get(dpid);
+            MessageBuilder.addLoadBalancingIngressFlows(dpid, factory, vip, flows, U64.ZERO, true).forEach(iofSwitch::write);
+        }
     }
 
     private boolean isClientUnknown(IPv4Address client) {
@@ -238,6 +270,8 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
 
             // Initialize load balancing flows
             logicalLoadBalancingFlows = new HashMap<>();
+            logicalLoadBalancingFlows.put(prefix, singletonList(
+                    new LoadBalancingFlow(IPUtil.base(config.getStrategyRanges().get(prefix)), null)));
             physicalLoadBalancingFlows = new HashMap<>();
             updatePrefixLoadBalancing();
             updateConnectionLoadBalancing();
@@ -266,11 +300,13 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
 
     private void updatePrefixLoadBalancing() {
         // Build logical flows
-        List<LoadBalancingFlow> logicalFlows = buildPrefixLogicalFlows();
-        logicalLoadBalancingFlows.put(prefix, logicalFlows);
+        List<LoadBalancingFlow> logicalFlowsOld = logicalLoadBalancingFlows.get(prefix);
+        List<LoadBalancingFlow> logicalFlowsNew = buildPrefixLogicalFlows();
+        transitions = DifferenceFinder.findDifferences(logicalFlowsOld, logicalFlowsNew);
+        logicalLoadBalancingFlows.put(prefix, logicalFlowsNew);
 
         // Build physical flows
-        physicalLoadBalancingFlows.put(prefix, FlowBuilder.buildPhysicalFlows(config, logicalFlows, vips));
+        physicalLoadBalancingFlows.put(prefix, FlowBuilder.buildPhysicalFlows(config, logicalFlowsNew, vips));
     }
 
     // TODO rework this
@@ -280,7 +316,8 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
         logicalLoadBalancingFlows.put(connection, logicalFlows);
 
         // Build physical flows
-        physicalLoadBalancingFlows.put(connection, FlowBuilder.buildPhysicalFlows(config, logicalFlows, vips));
+        Map<DatapathId, List<LoadBalancingFlow>> physicalFlows = FlowBuilder.buildPhysicalFlows(config, logicalFlows, vips);
+        physicalLoadBalancingFlows.put(connection, physicalFlows);
     }
 
     private void writeMeasurementFlows(Iterable<IOFSwitch> switches) {
@@ -306,8 +343,12 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
                 U64 cookie = strategy.cookie();
                 List<LoadBalancingFlow> flows = physicalLoadBalancingFlows.get(strategy).get(dpid);
 
-                if (strategy != connection) {
+                if (strategy == prefix) {
                     MessageBuilder.deleteLoadBalancingFlows(dpid, factory, cookie).forEach(iofSwitch::write);
+                    if (config.getTopology().isCoreSwitch(dpid)) {
+                        MessageBuilder.addLoadBalancingTransitionFlows(dpid, factory, vip, transitions,
+                                (int) (config.getMeasurementInterval() / 2)).forEach(iofSwitch::write);
+                    }
                 }
                 // TODO for traditional only write new flows
                 MessageBuilder.addLoadBalancingIngressFlows(dpid, factory, vip, flows, cookie, strategy == connection).forEach(iofSwitch::write);
@@ -334,7 +375,7 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
             // Install traditional load balancer controller flows
             if (config.getStrategyRanges().containsKey(connection)) {
                 IPv4AddressRange range = config.getStrategyRanges().get(connection);
-                // TODO subsets for hierarchical load balancing?
+                    // TODO subsets for hierarchical load balancing?
                 List<IPv4AddressWithMask> prefixes = IPUtil.nonOverlappingPrefixes(range);
                 MessageBuilder.addLoadBalancingControllerFlows(dpid, factory, vip, prefixes).forEach(iofSwitch::write);
             }
@@ -349,8 +390,8 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
         List<WeightedPrefix> doubleMeasurements = null;
         if (config.isIgnoreMeasurements()) {
             // Generate fake measurements
+            // TODO
             if (config.getTopology().getServers().isEmpty()) {
-
             } else {
                 int numberOfServers = config.getTopology().getServers().size();
                 int nextPowerOfTwo = 1 << (32 - Integer.numberOfLeadingZeros(numberOfServers - 1));
@@ -372,9 +413,14 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
                 .map(dip -> new Server(dip, config.getWeights().get(dip)))
                 .collect(toList());
 
+        IPv4AddressWithMask range = IPUtil.base(config.getStrategyRanges().get(prefix));
         List<WeightedPrefix> mergedMeasurements = MeasurementMerger.merge(doubleMeasurements, config.getClientRange());
+        if (mergedMeasurements.isEmpty()) {
+            mergedMeasurements = singletonList(
+                    new WeightedPrefix(range, 1));
+        }
 
-        return GreedyPrefixAssigner.assignPrefixes(mergedMeasurements, servers);
+        return GreedyPrefixAssigner.assignPrefixes(range, mergedMeasurements, servers);
     }
 
     private List<LoadBalancingFlow> buildConnectionLogicalFlows() {

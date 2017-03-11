@@ -5,6 +5,7 @@ import org.projectfloodlight.openflow.types.U64;
 public enum Strategy {
     prefix, connection;
 
+    // Buttery Biscuit Base
     public static final int COOKIE_BASE = 100;
 
     public U64 cookie() {
