@@ -497,9 +497,7 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
     private Map<DatapathId, List<Measurement>> getMeasurementsFromSsh(Iterable<IOFSwitch> switches) {
         Objects.requireNonNull(switches);
 
-        // TODO parallelize?
-        Map<DatapathId, List<Measurement>> newMeasurements = new HashMap<>();
-        for (IOFSwitch iofSwitch : switches) {
+        return SwitchCommunicator.concurrently(switches, iofSwitch -> {
             DatapathId dpid = iofSwitch.getId();
 
             MeasurementCommand command = config.getMeasurementCommands().get(dpid);
@@ -510,14 +508,13 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
                     LOG.warn("ssh exited unsuccessfully. Return code: {}", p.exitValue());
                 } else {
                     String result = CharStreams.toString(new InputStreamReader(p.getInputStream()));
-                    List<Measurement> parsedMeasurements = SshParser.parseResult(result, MessageBuilder.getMeasurementTableId(dpid).getValue());
-                    newMeasurements.put(dpid, parsedMeasurements);
+                    return SshParser.parseResult(result, MessageBuilder.getMeasurementTableId(dpid).getValue());
                 }
             } catch (InterruptedException | IOException e) {
                 LOG.warn("Unable to ssh into switch {}", iofSwitch.getId());
             }
-        }
-        return newMeasurements;
+            return emptyList();
+        });
     }
 
     private List<IOFSwitch> getActiveManagedSwitches() {
