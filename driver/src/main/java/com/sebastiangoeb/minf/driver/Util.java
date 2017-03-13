@@ -1,15 +1,8 @@
 package com.sebastiangoeb.minf.driver;
 
-import java.net.InetAddress;
-import java.net.UnknownHostException;
 import java.text.MessageFormat;
-import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
-
-import org.apache.commons.math3.distribution.EnumeratedDistribution;
-import org.apache.commons.math3.util.Pair;
 
 public class Util {
 
@@ -55,37 +48,18 @@ public class Util {
 		}
 		return 0;
 	}
-
-	public static InetAddress parseIP(String address) {
-		String[] toks = address.split(".");
-		byte[] bytes = new byte[toks.length];
-		for (int i = 0; i < toks.length; i++) {
-			bytes[i] = Byte.parseByte(toks[i]);
+	
+	public static int ip2int(String ipString) {
+		String[] octets = ipString.split("\\.");
+		int ipVal = 0;
+		for (int i = 0; i < octets.length; i++) {
+			int octetVal = Integer.parseInt(octets[i]);
+			ipVal += octetVal << (32 - 8 - 8 * i);
 		}
-		try {
-			return InetAddress.getByAddress(bytes);
-		} catch (UnknownHostException e) {
-			e.printStackTrace();
-			return null;
-		}
+		return ipVal;
 	}
-
-	public static String formatIP(double val) {
-		long raw = (long) (val * Math.pow(2, 32));
-		return MessageFormat.format("{0}.{1}.{2}.{3}", (raw >> 24) & 255, (raw >> 16) & 255, (raw >> 8) & 255, raw & 255);
-	}
-
-	public static double sampleDistributions(List<DistributionInfo> distributions) {
-		DistributionInfo dist;
-		if (distributions.size() > 1) {
-			List<Pair<DistributionInfo, Double>> weightedDists = distributions.stream().map(d -> new Pair<>(d, d.weight))
-					.collect(Collectors.toList());
-			EnumeratedDistribution<DistributionInfo> distOfDists = new EnumeratedDistribution<DistributionInfo>(
-					weightedDists);
-			dist = distOfDists.sample();
-		} else {
-			dist = distributions.get(0);
-		}
-		return dist.sample();
+	
+	public static String int2ip(int ipVal) {
+		return MessageFormat.format("{0}.{1}.{2}.{3}", (ipVal >> 24) & 255, (ipVal >> 16) & 255, (ipVal >> 8) & 255, ipVal & 255);
 	}
 }

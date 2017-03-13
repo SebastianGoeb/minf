@@ -11,30 +11,45 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
-import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.google.gson.JsonIOException;
 import com.google.gson.JsonSyntaxException;
 
 public class Experiment {
 
-	// private static final String ADD_TUNNEL = "ip tun add tun0 mode gre remote {0} dev {1}";
-	// private static final String DEL_TUNNEL = "ip tun del tun0";
 	private static final String ADD_IP = "ip addr add {0}/32 dev {1}";
 	private static final String DEL_IP = "ip addr del {0}/32 dev {1}";
-	private static final String REQUEST = "wget -O /dev/null --bind-address {0} --limit-rate {1} --tries=1 --timeout=5 http://{2}:8080/{3}";
+	private static final String GET_DATA = "wget -O /dev/null --bind-address {0} --limit-rate {1} --tries={2} --timeout={3} http://{4}:8080/{5}";
 
 	public String intf;
 	public String remoteAddr;
+	public String localSubnet;
 	public List<Traffic> traffics;
 
-	public void perform(boolean dryRun) {
-		// Add tunnel
-		// String command = MessageFormat.format(ADD_TUNNEL, remoteAddr, intf);
-		// exec(command, dryRun);
+	public static Experiment fromFile(String fileName) {
+		try {
+			return new GsonBuilder()
+					.registerTypeAdapter(Distribution.class, new DistributionDeserializer())
+					.create()
+					.fromJson(new FileReader(fileName), Experiment.class);
+		} catch (JsonSyntaxException e) {
+			System.out.println("JSON syntax exception: " + fileName);
+			e.printStackTrace();
+		} catch (JsonIOException e) {
+			System.out.println("Error reading file: " + fileName);
+		} catch (FileNotFoundException e) {
+			System.out.println("No such file: " + fileName);
+		}
+		System.exit(1);
+		return null;
+	}
 
-		// Setup executor
+	public void perform(boolean dryRun) {
 		ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
 		List<ScheduledFuture<?>> futures = new ArrayList<>();
+
+		int minIp = Util.ip2int(localSubnet.split("/")[0]);
+		int maxIp = minIp + (1 << (32 - Integer.parseInt(localSubnet.split("/")[1]))) - 1;
 
 		// Run traffic generation
 		for (Traffic traffic : traffics) {
@@ -44,14 +59,14 @@ public class Experiment {
 			executor.setCorePoolSize(traffic.clients);
 			while (futures.size() < traffic.clients) {
 				futures.add(executor.scheduleWithFixedDelay(() -> {
-					double val = Util.sampleDistributions(traffic.localAddr);
-					String localAddress = Util.formatIP(val);
+					int val = minIp + (int) ((maxIp - minIp) * traffic.localAddr.sample());
+					String localAddress = Util.int2ip(val);
 
 					// Add IP
 					exec(MessageFormat.format(ADD_IP, localAddress, intf), dryRun);
 
 					// Request data
-					String command = MessageFormat.format(REQUEST, localAddress, traffic.rate, remoteAddr, traffic.size);
+					String command = MessageFormat.format(GET_DATA, localAddress, traffic.rate, remoteAddr, traffic.size);
 					System.out.println(command);
 					int retval = exec(command, dryRun);
 					if (dryRun) {
@@ -94,10 +109,6 @@ public class Experiment {
 			System.out.println("Interruption waiting for executor shutdown");
 			e.printStackTrace();
 		}
-
-		// Delete tunnel
-		// command = MessageFormat.format(DEL_TUNNEL, remoteAddr, intf);
-		// exec(command, dryRun);
 	}
 
 	public int exec(String command, boolean dryRun) {
@@ -115,18 +126,5 @@ public class Experiment {
 			e.printStackTrace();
 			return -1;
 		}
-	}
-
-	public static Experiment fromFile(String fileName) {
-		try {
-			return new Gson().fromJson(new FileReader(fileName), Experiment.class);
-		} catch (JsonSyntaxException e) {
-			System.out.println("Invalid json file: " + fileName);
-		} catch (JsonIOException e) {
-			System.out.println("Error reading file: " + fileName);
-		} catch (FileNotFoundException e) {
-			System.out.println("No such file: " + fileName);
-		}
-		return null;
 	}
 }

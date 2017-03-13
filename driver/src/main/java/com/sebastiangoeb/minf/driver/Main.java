@@ -1,50 +1,52 @@
 package com.sebastiangoeb.minf.driver;
 
 import org.apache.commons.cli.CommandLine;
-import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.Option;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 
 public class Main {
+	
+	private static class Config {
+		private String experimentPath;
+		private boolean dryRun;
+		
+		private Config(String experimentPath, boolean dryRun) {
+			super();
+			this.experimentPath = experimentPath;
+			this.dryRun = dryRun;
+		}
 
-	public static CommandLine parseArgs(String[] args) {
-		// create parser
-		CommandLineParser parser = new DefaultParser();
+		private String getExperimentPath() {
+			return experimentPath;
+		}
 
-		// create options
+		private boolean isDryRun() {
+			return dryRun;
+		}
+	}
+
+	public static Config parseArgs(String[] args) {
+		// Create options
 		Options options = new Options();
-//		options.addOption(Option.builder("t").longOpt("topology").argName("topo").desc("Topology json file").hasArg()
-//				.required().build());
-		options.addOption(Option.builder("e").longOpt("experiment").argName("exp").desc("Experiment json file").hasArg()
-				.required().build());
+		options.addOption(Option.builder("e").longOpt("experiment").argName("exp").desc("Experiment json file").hasArg().required().build());
 		options.addOption(Option.builder("d").longOpt("dry-run").argName("dry run").desc("Don't run any commands. Just print them.").build());
 
-		// parse
+		// Parse
 		try {
-			return parser.parse(options, args);
+			CommandLine cli = new DefaultParser().parse(options, args);
+			return new Config(cli.getOptionValue("e"), cli.hasOption("d"));
 		} catch (ParseException exp) {
 			System.out.println(exp.getMessage());
+			System.exit(1);
 			return null;
 		}
 	}
 
 	public static void main(String[] args) {
-		// parse args
-		CommandLine cli = parseArgs(args);
-		if (cli == null) {
-			System.exit(1);
-		}
-
-		// load files
-//		Topology topo = Topology.fromFile(cli.getOptionValue("t"));
-		Experiment exp = Experiment.fromFile(cli.getOptionValue("e"));
-		if (exp == null) {
-			System.exit(1);
-		}
-
-		// run experiment
-		exp.perform(cli.hasOption("d"));
+		Config config = parseArgs(args);
+		Experiment experiment = Experiment.fromFile(config.getExperimentPath());
+		experiment.perform(config.isDryRun());
 	}
 }

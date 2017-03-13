@@ -1,22 +1,12 @@
 {
-    "intf": "veth0",
-    "remoteAddr": "2.2.2.2",
-    "traffics": [
-        {
-            "localAddr": [
-                {
-                    "type": "NORMAL",
-                    "mean": 0.5,
-                    "sd": 0.1,
-                    "left": 0,
-                    "right": 1,
-                    "weight": 1
-                }
-            ],
-            "rate": "1M",
-            "size": "10M",
-            "clients": 1,
-            "duration": 0
-        }
-    ]
+  "intf": "h1-eth0",
+  "remoteAddr": "10.5.2.1",
+  "localSubnet": "10.0.0.0/8",
+  "traffics": [{
+    "localAddr": "Normal(0.5, 0.1)",
+    "rate": "1k",
+    "size": "2k",
+    "clients": 2,
+    "duration": 10
+  }]
 }
