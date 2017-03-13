@@ -83,7 +83,7 @@ class SshParser {
             IPv4AddressWithMask nwSrc = matchProperties.containsKey("nw_src")
                     ? IPv4AddressWithMask.of(matchProperties.get("nw_src")) : null;
             // Bytes
-            int bytes = Integer.parseInt(properties.get("n_bytes"));
+            long bytes = Long.parseLong(properties.get("n_bytes"));
             // Measurement
             return new Measurement(nwSrc != null ? nwSrc : nwDst, bytes);
         }

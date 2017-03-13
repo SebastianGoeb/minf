@@ -92,7 +92,7 @@ class MessageBuilder {
         return (short) ((dpid.getLong() - 1) * NUM_TABLES + 1);
     }
 
-    public static TableId getMeasurementTableId(DatapathId dpid) {
+    static TableId getMeasurementTableId(DatapathId dpid) {
         return TableId.of(getBaseTableId(dpid) + MEASUREMENT_TABLE_ID_OFFSET);
     }
 
@@ -100,7 +100,7 @@ class MessageBuilder {
         return TableId.of(getBaseTableId(dpid) + LOAD_BALANCING_TABLE_ID_OFFSET);
     }
 
-    private static TableId getForwardingTableId(DatapathId dpid) {
+    static TableId getForwardingTableId(DatapathId dpid) {
         return TableId.of(getBaseTableId(dpid) + FORWARDING_TABLE_ID_OFFSET);
     }
 

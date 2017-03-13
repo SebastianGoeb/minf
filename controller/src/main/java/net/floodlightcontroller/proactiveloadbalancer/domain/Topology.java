@@ -16,6 +16,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
+import static java.util.stream.Collectors.toList;
+
 public class Topology {
 
     @JsonProperty
@@ -88,5 +90,12 @@ public class Topology {
 
     public boolean isCoreSwitch(DatapathId dpid) {
         return getUplinksToClients().containsKey(dpid);
+    }
+
+    public List<DatapathId> getAccessSwitches() {
+        return getSwitches().stream()
+                .filter(dpid -> getDownlinksToServers().containsKey(dpid))
+                .filter(dpid -> !getDownlinksToServers().get(dpid).isEmpty())
+                .collect(toList());
     }
 }
