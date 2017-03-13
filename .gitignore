@@ -11,3 +11,6 @@
 
 # Floodlight
 floodlight/
+
+# Logs
+*.log
