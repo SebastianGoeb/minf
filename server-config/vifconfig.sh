@@ -37,8 +37,12 @@ ip_to_mac=(
     ["10.4.2.2"]="f6:2c:99:73:fc:d6" ["10.4.2.3"]="4e:b3:0c:da:61:23"
 )
 
+LOAD_BALANCER_IP="10.5.1.12"
+LOAD_BALANCER_MAC="00:00:0a:05:01:0c"
+
 setup()
 {
+
     ovs-vsctl add-br br0
     # set controller
     ovs-vsctl set-controller br0 tcp:129.215.164.111:6633
@@ -54,15 +58,23 @@ setup()
     macaddr=${ip_to_mac[$ip]}
     echo $ip $macaddr
 
+    # Configure interface
     ifconfig eth1 up
     ifconfig vnet0 up
     ifconfig vnet0 $ip
     ifconfig vnet0 hw ether $macaddr
 
-    for ip in "${!ip_to_mac[@]}"; do
-        macaddr=${ip_to_mac[$ip]}
-        arp -s $ip $macaddr dev vnet0
-    done
+    # Configure routes
+    ip route del 10.0.0.0/8 dev vnet0
+    ip route add $LOAD_BALANCER_IP dev vnet0
+    ip route add 10.0.0.0/8 via $LOAD_BALANCER_IP
+
+    # Configure arp
+    arp -s $LOAD_BALANCER_IP $LOAD_BALANCER_MAC
+    # for ip in "${!ip_to_mac[@]}"; do
+    #     macaddr=${ip_to_mac[$ip]}
+    #     arp -s $ip $macaddr dev vnet0
+    # done
 }
 
 reset()
@@ -74,23 +86,20 @@ reset()
 # Usage info
 show_help()
 {
-    cat << EOF
-       -h    this menu
-       -s    set up bridge and flow rules
-       -r    delete bridge and flow rules
-EOF
+cat <<EndOfMessage
+Usage: vifconfig.sh [-h] [-s] [-r]
+
+Options:
+  h : this menu
+  s : set up bridge and flow rules
+  r : delete bridge and flow rules
+EndOfMessage
 }
 
-while getopts "hsr" opt; do
-    case "$opt" in
-        h)  show_help
-	    exit 0
-	    ;;
-	s)  setup
-            exit 0
-            ;;
-        r)  reset
-            exit 0
-            ;;
+while getopts hsr name; do
+    case $name in
+        h)  show_help; exit 1;;
+        s)  setup; exit 0;;
+        r)  reset; exit 0;;
     esac
 done

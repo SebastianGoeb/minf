@@ -16,6 +16,9 @@ name_to_ip=(
     ["nsl208"]="10.5.1.10" ["nsl209"]="10.5.1.11"
 )
 
+LOAD_BALANCER_IP="10.5.1.12"
+LOAD_BALANCER_MAC="00:00:0a:05:01:0c"
+
 setup()
 {
     ip=${name_to_ip[$HOSTNAME]}
@@ -23,6 +26,7 @@ setup()
 
     ip link set dev eth1 up
     ip addr add $ip/24 dev eth1
+    arp -s $LOAD_BALANCER_IP $LOAD_BALANCER_MAC
 }
 
 reset()
