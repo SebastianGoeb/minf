@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+
+DIR=$(cd $(dirname $0); pwd)
+
+print_help()
+{
+cat <<EndOfMessage
+Usage: build [-c] [-d] [-s]
+
+Options:
+  c : build controller
+  d : build driver
+  s : build server
+EndOfMessage
+}
+
+build_controller()
+{
+  echo -e "\033[1m**** Building Controller ****\033[0m"
+  cd "$DIR/floodlight"
+  ant
+  echo
+}
+
+build_driver()
+{
+  echo -e "\033[1m**** Building Driver ****\033[0m"
+  cd "$DIR/driver"
+  mvn clean install
+  cd "$DIR/driver/target"
+  mv driver-jar-with-dependencies.jar driver.jar
+  echo
+}
+
+build_server()
+{
+  echo -e "\033[1m**** Building Server ****\033[0m"
+  cd "$DIR/server"
+  mvn clean install
+  cd "$DIR/server/target"
+  mv server-jar-with-dependencies.jar server.jar
+  echo
+}
+
+# Parse args
+RAN_SOMETHING=0
+while getopts cdsh name; do
+  case $name in
+    c) build_controller; RAN_SOMETHING=1;;
+    d) build_driver; RAN_SOMETHING=1;;
+    s) build_server; RAN_SOMETHING=1;;
+    h) print_help; exit 1;;
+  esac
+done
+
+# Print help if no args
+if [[ $RAN_SOMETHING == 0 ]]; then
+    print_help
+    exit 1
+fi
