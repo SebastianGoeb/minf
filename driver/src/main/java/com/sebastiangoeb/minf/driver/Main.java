@@ -1,5 +1,7 @@
 package com.sebastiangoeb.minf.driver;
 
+import java.util.List;
+
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.Option;
@@ -30,13 +32,23 @@ public class Main {
 	public static Config parseArgs(String[] args) {
 		// Create options
 		Options options = new Options();
-		options.addOption(Option.builder("e").longOpt("experiment").argName("exp").desc("Experiment json file").hasArg().required().build());
 		options.addOption(Option.builder("d").longOpt("dry-run").argName("dry run").desc("Don't run any commands. Just print them.").build());
 
 		// Parse
 		try {
 			CommandLine cli = new DefaultParser().parse(options, args);
-			return new Config(cli.getOptionValue("e"), cli.hasOption("d"));
+			boolean dryRun = cli.hasOption("d");
+			List<String> argList = cli.getArgList();
+			if (argList.size() == 0) {
+				return new Config(null, dryRun);
+			} else if (argList.size() == 1) {
+				String experimentPath = argList.stream().findFirst().orElse(null);
+				return new Config(experimentPath, dryRun);
+			} else {
+				System.out.println("Please provide only one experiment json file or use stdin");
+				System.exit(1);
+				return null;
+			}
 		} catch (ParseException exp) {
 			System.out.println(exp.getMessage());
 			System.exit(1);
@@ -46,7 +58,10 @@ public class Main {
 
 	public static void main(String[] args) {
 		Config config = parseArgs(args);
-		Experiment experiment = Experiment.fromFile(config.getExperimentPath());
-		experiment.perform(config.isDryRun());
+		if (config.getExperimentPath() == null) {
+			Experiment.fromStream(System.in).perform(config.isDryRun());
+		} else {
+			Experiment.fromFile(config.getExperimentPath()).perform(config.isDryRun());
+		}
 	}
 }

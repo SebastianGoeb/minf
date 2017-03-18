@@ -1,9 +1,11 @@
 package com.sebastiangoeb.minf.driver;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileNotFoundException;
-import java.io.FileReader;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.List;
@@ -25,23 +27,28 @@ public class Experiment {
 	public String remoteAddr;
 	public String localSubnet;
 	public List<Traffic> traffics;
-
-	public static Experiment fromFile(String fileName) {
+	
+	public static Experiment fromStream(InputStream inputStream) {
 		try {
 			return new GsonBuilder()
 					.registerTypeAdapter(Distribution.class, new DistributionDeserializer())
 					.create()
-					.fromJson(new FileReader(fileName), Experiment.class);
-		} catch (JsonSyntaxException e) {
-			System.out.println("JSON syntax exception: " + fileName);
+					.fromJson(new InputStreamReader(inputStream), Experiment.class);
+		} catch (JsonSyntaxException | JsonIOException e) {
 			e.printStackTrace();
-		} catch (JsonIOException e) {
-			System.out.println("Error reading file: " + fileName);
-		} catch (FileNotFoundException e) {
-			System.out.println("No such file: " + fileName);
+			System.exit(1);
+			return null;
 		}
-		System.exit(1);
-		return null;
+	}
+
+	public static Experiment fromFile(String fileName) {
+		try {
+			return fromStream(new FileInputStream(fileName));
+		} catch (FileNotFoundException e) {
+			e.printStackTrace();
+			System.exit(1);
+			return null;
+		}
 	}
 
 	public void perform(boolean dryRun) {
