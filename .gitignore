@@ -12,5 +12,7 @@
 # Floodlight
 floodlight/
 
-# Logs
+# Data
 *.log
+*.csv
+*.tsv
