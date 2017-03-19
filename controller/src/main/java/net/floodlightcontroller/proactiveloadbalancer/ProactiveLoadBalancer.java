@@ -31,17 +31,15 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.text.MessageFormat;
 import java.util.*;
-import java.util.Map.Entry;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 import static java.util.Collections.emptyList;
 import static java.util.Collections.singletonList;
-import static java.util.Comparator.comparing;
-import static java.util.stream.Collectors.*;
+import static java.util.stream.Collectors.toList;
+import static java.util.stream.Collectors.toMap;
 import static net.floodlightcontroller.proactiveloadbalancer.domain.Strategy.connection;
 import static net.floodlightcontroller.proactiveloadbalancer.domain.Strategy.prefix;
 
@@ -49,6 +47,12 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
         IProactiveLoadBalancerService {
 
     private static final Logger LOG = LoggerFactory.getLogger(ProactiveLoadBalancer.class);
+
+    // Constants
+    // TODO configurable?
+    private static final long SNAPSHOT_INTERVAL = 1;
+    private static final long SERVER_MEASUREMENT_INTERVAL = 2;
+    private static final long SNAPSHOT_HISTORY_DURATION = (60 + SNAPSHOT_INTERVAL);
 
     // Services
     private IFloodlightProviderService floodlightProvider;
@@ -64,19 +68,19 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
 
     // Scheduling
     private ScheduledFuture<?> clientMeasurementFuture;
-    private ScheduledFuture<?> serverMeasurementFuture;
+    private ScheduledFuture<?> snapshotFuture;
 
-    // Runtime stuff
-    private Map<DatapathId, List<Measurement>> measurements;
-    private Map<IPv4Address, Long> serverMeasurements;
+    // Measurement
+    private Map<DatapathId, List<Measurement>> clientMeasurements;
+    private LinkedList<Snapshot> snapshotHistory;
+
+    // Derived from measurements
     private Map<IPv4Address, Double> serverRates;
-    private long serverMeasurementTimestamp;
 
+    // Flows
     private Map<Strategy, List<LoadBalancingFlow>> logicalLoadBalancingFlows;
     private List<Transition> transitions;
     private Map<Strategy, Map<DatapathId, List<LoadBalancingFlow>>> physicalLoadBalancingFlows;
-
-    private List<MeasurementLog> serverMeasurementLog;
 
     // ----------------------------------------------------------------
     // - IOFMessageListener methods
@@ -240,15 +244,13 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
         if (config != null) {
             LOG.info("Tearing down all switches");
             clientMeasurementFuture.cancel(true);
-            serverMeasurementFuture.cancel(true);
+            snapshotFuture.cancel(true);
             // TODO wait for that to complete
             try {
                 Thread.sleep(1000);
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
-
-            serverMeasurementLog = null;
 
             getActiveManagedSwitches().forEach(iofSwitch -> {
                 DatapathId dpid = iofSwitch.getId();
@@ -281,14 +283,11 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
             writePermanentFlows(getActiveManagedSwitches());
 
             // Initialize client measurements
-            measurements = switches.stream().collect(toMap(dpid -> dpid, dpid -> emptyList()));
+            clientMeasurements = switches.stream().collect(toMap(dpid -> dpid, dpid -> emptyList()));
             writeClientMeasurementFlows(getActiveManagedSwitches());
 
-            // Initialize server measurements
-            serverMeasurements = config.getTopology().getServers().stream().collect(toMap(ip -> ip, ip -> 0L));
-            serverRates = config.getTopology().getServers().stream().collect(toMap(ip -> ip, ip -> 0D));
-            serverMeasurementTimestamp = System.currentTimeMillis();
-            serverMeasurementLog = new LinkedList<>();
+            // Initialize snapshots
+            snapshotHistory = new LinkedList<>();
 
             // Initialize load balancing flows
             logicalLoadBalancingFlows = new HashMap<>();
@@ -300,10 +299,14 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
             writeLoadBalancingFlows(getActiveManagedSwitches(), config.getStrategyRanges().keySet());
 
             // Start snapshot cycle
-            threadPoolService.getScheduledExecutor().scheduleAtFixedRate(() -> {
+            snapshotFuture = threadPoolService.getScheduledExecutor().scheduleAtFixedRate(() -> {
                 Snapshot snapshot = getSnapshot();
                 LOG.info("snapshot: {}", snapshot.toJson());
-            }, 0, 1, TimeUnit.SECONDS);
+
+                snapshotHistory.addFirst(snapshot);
+                snapshotHistory.removeIf(snap -> snapshot.getTimestamp() - snap.getTimestamp() > TimeUnit.SECONDS.toMillis(SNAPSHOT_HISTORY_DURATION));
+                serverRates = calculateRatesAsMovingAverage(SERVER_MEASUREMENT_INTERVAL * 1000);
+            }, 0, SNAPSHOT_INTERVAL, TimeUnit.SECONDS);
 
             // Start client prefix measurement cycle
             clientMeasurementFuture = threadPoolService.getScheduledExecutor().scheduleAtFixedRate(() -> {
@@ -314,68 +317,65 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
                     writeLoadBalancingFlows(getActiveManagedSwitches(), singletonList(prefix));
                 }
             }, config.getMeasurementInterval(), config.getMeasurementInterval(), TimeUnit.SECONDS);
-            // TODO run a shorter measurement interval the first time?
-            long startMillis = System.currentTimeMillis();
-            serverMeasurementFuture = threadPoolService.getScheduledExecutor().scheduleAtFixedRate(() -> {
-                try {
-                    updateServerMeasurements();
-                    logServerMeasurements();
-                    //                serverMeasurementLog.add(new MeasurementLog(
-                    //                        System.currentTimeMillis() - startMillis,
-                    //                        new HashMap<>(serverMeasurements),
-                    //
-                    //                ));
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            }, 2, 2, TimeUnit.SECONDS);
         }
+    }
+
+    private Map<IPv4Address, Double> calculateRatesAsMovingAverage(long intervalMillis) {
+        List<IPv4Address> servers = config.getTopology().getServers();
+
+        // Initialize rates to zero
+        Map<IPv4Address, Double> rates = new HashMap<>();
+        for (IPv4Address server : servers) {
+            rates.put(server, 0D);
+        }
+
+        // Default return zeros
+        if (snapshotHistory.isEmpty()) {
+            return rates;
+        }
+
+        // Use newest snapshot as starting point
+        Snapshot newestSnapshot = snapshotHistory.getFirst();
+        long newestTimestamp = newestSnapshot.getTimestamp();
+
+        // Use oldest snapshot (or first to exceed duration) as end point
+        Snapshot oldestSnapshot = snapshotHistory.getLast();
+        long oldestTimestamp = oldestSnapshot.getTimestamp();
+        for (Snapshot snapshot : snapshotHistory) {
+            if (newestTimestamp - snapshot.getTimestamp() > intervalMillis) {
+                oldestSnapshot = snapshot;
+                oldestTimestamp = snapshot.getTimestamp();
+                break;
+            }
+        }
+
+        // Calculate interval in seconds
+        double actualIntervalSeconds = (oldestTimestamp - newestTimestamp) / 1000.0;
+
+        // Add newest measurements
+        for (Measurement measurement : newestSnapshot.getServerMeasurements()) {
+            IPv4Address server = measurement.getPrefix().getValue();
+            long newestBytes = measurement.getBytes();
+            rates.put(server, (double) newestBytes);
+        }
+
+        // Subtract oldest measurements and divide by interval
+        for (Measurement measurement : oldestSnapshot.getServerMeasurements()) {
+            IPv4Address server = measurement.getPrefix().getValue();
+            long oldestBytes = measurement.getBytes();
+            double rate = (rates.get(server) - oldestBytes) / actualIntervalSeconds;
+            rates.put(server, rate);
+        }
+
+        return rates;
     }
 
     private void updateClientMeasurements() {
         if (config.getMeasurementCommands() == null) {
-            measurements = getClientMeasurements(getActiveManagedSwitches());
+            clientMeasurements = getClientMeasurements(getActiveManagedSwitches());
         } else {
-            measurements = getClientMeasurementsFromSsh(getActiveManagedSwitches());
+            clientMeasurements = getClientMeasurementsFromSsh(getActiveManagedSwitches());
         }
-    }
-
-    private void updateServerMeasurements() {
-        if (config.getMeasurementCommands() == null) {
-//            serverMeasurements = getServerMeasurements(getActiveManagedSwitches());
-            throw new UnsupportedOperationException("not implemented yet");
-        } else {
-            // Measure
-            Map<IPv4Address, Long> newServerMeasurements = getServerMeasurementsFromSsh(getActiveManagedSwitches()).entrySet().stream()
-                    .map(Entry::getValue)
-                    .flatMap(List::stream)
-                    .collect(toMap(
-                            m -> m.getPrefix().getValue(),
-                            m -> m.getBytes()));
-
-            // Update timestamp
-            long interval = System.currentTimeMillis() - serverMeasurementTimestamp;
-            serverMeasurementTimestamp = System.currentTimeMillis();
-
-            // Calculate rates
-            serverRates = newServerMeasurements.entrySet().stream()
-                    .collect(toMap(
-                            e -> e.getKey(),
-                            e -> (double) (e.getValue() - serverMeasurements.get(e.getKey())) / interval));
-            serverMeasurements = newServerMeasurements;
-        }
-    }
-
-    private void logServerMeasurements() {
-        String byteString = serverMeasurements.entrySet().stream()
-                .sorted(comparing(Entry::getKey))
-                .map(e -> MessageFormat.format("{0}={1,number,#}", e.getKey(), e.getValue()))
-                .collect(joining(","));
-        String rateString = serverRates.entrySet().stream()
-                .sorted(comparing(Entry::getKey))
-                .map(e -> MessageFormat.format("{0}={1,number,#.##}", e.getKey(), e.getValue()))
-                .collect(joining(","));
-        LOG.info(MessageFormat.format("timestamp: {0}\tbytes: {1}\trates: {2}", String.valueOf(serverMeasurementTimestamp), byteString, rateString));
     }
 
     private void updatePrefixLoadBalancing() {
@@ -405,7 +405,7 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
         for (IOFSwitch iofSwitch : switches) {
             DatapathId dpid = iofSwitch.getId();
             OFFactory factory = iofSwitch.getOFFactory();
-            List<IPv4AddressWithMask> flows = FlowBuilder.buildMeasurementFlows(measurements.get(dpid), config);
+            List<IPv4AddressWithMask> flows = FlowBuilder.buildMeasurementFlows(clientMeasurements.get(dpid), config);
 
             MessageBuilder.deleteMeasurementFlows(dpid, factory).forEach(iofSwitch::write);
             MessageBuilder.addMeasurementFlows(dpid, factory, vips.get(dpid), flows).forEach(iofSwitch::write);
@@ -482,7 +482,7 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
         } else {
             // Convert long measurements to double measurements
             // TODO remove long measurements eventually
-            doubleMeasurements = measurements.values().stream()
+            doubleMeasurements = clientMeasurements.values().stream()
                     .flatMap(Collection::stream)
                     .map(msmt -> new WeightedPrefix(msmt.getPrefix(), msmt.getBytes()))
                     .collect(toList());
@@ -506,7 +506,7 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
     private List<LoadBalancingFlow> buildConnectionLogicalFlows() {
         // Merge measurements into single tree
         // TODO refactor into field
-        List<Measurement> allMeasurements = measurements.values().stream()
+        List<Measurement> allMeasurements = clientMeasurements.values().stream()
                 .flatMap(Collection::stream)
                 .collect(toList());
         PrefixTrie<Double> mergedMeasurements = FlowBuilder.mergeMeasurements(allMeasurements, config);
@@ -587,8 +587,9 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
                 if (p.exitValue() != 0) {
                     LOG.warn("ssh exited unsuccessfully. Return code: {}", p.exitValue());
                 } else {
-                    String result = CharStreams.toString(new InputStreamReader(p.getInputStream()));
-                    return SshParser.parseResult(result, MessageBuilder.getMeasurementTableId(dpid).getValue());
+                    String sshStdOut = CharStreams.toString(new InputStreamReader(p.getInputStream()));
+                    List<Flow> flows = SshParser.parseResult(sshStdOut);
+                    return extractClientMeasurements(flows, dpid);
                 }
             } catch (InterruptedException | IOException e) {
                 LOG.warn("Unable to ssh into switch {}", iofSwitch.getId());
@@ -600,6 +601,8 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
     private Map<DatapathId, List<Measurement>> getServerMeasurementsFromSsh(Iterable<IOFSwitch> switches) {
         Objects.requireNonNull(switches);
 
+        HashSet<IPv4Address> servers = new HashSet<>(config.getTopology().getServers());
+
         return SwitchCommunicator.concurrently(switches, iofSwitch -> {
             DatapathId dpid = iofSwitch.getId();
 
@@ -610,11 +613,9 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
                 if (p.exitValue() != 0) {
                     LOG.warn("ssh exited unsuccessfully. Return code: {}", p.exitValue());
                 } else {
-                    String result = CharStreams.toString(new InputStreamReader(p.getInputStream()));
-                    return SshParser.parseResult(result, MessageBuilder.getForwardingTableId(dpid).getValue()).stream()
-                            .filter(m -> m.getPrefix().getMask().asCidrMaskLength() == 32)
-                            .filter(m -> config.getTopology().getServers().contains(m.getPrefix().getValue()))
-                            .collect(toList());
+                    String sshStdOut = CharStreams.toString(new InputStreamReader(p.getInputStream()));
+                    List<Flow> flows = SshParser.parseResult(sshStdOut);
+                    return extractServerMeasurements(flows, dpid, servers);
                 }
             } catch (InterruptedException | IOException e) {
                 LOG.warn("Unable to ssh into switch {}", iofSwitch.getId());
@@ -625,32 +626,76 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
 
     private Snapshot getSnapshot() {
         long timestamp = System.currentTimeMillis();
+
         List<IOFSwitch> switches = getActiveManagedSwitches();
-        Map<DatapathId, Integer> numFlows = SwitchCommunicator.concurrently(switches, (iofSwitch) -> {
+        HashSet<IPv4Address> servers = new HashSet<>(config.getTopology().getServers());
+
+        Map<DatapathId, List<Flow>> flows = SwitchCommunicator.concurrently(switches, (iofSwitch) -> {
             DatapathId dpid = iofSwitch.getId();
 
             MeasurementCommand command = config.getMeasurementCommands().get(dpid);
             try {
-                Process p = new ProcessBuilder("ssh",
-                        command.getEndpoint(),
-                        command.getCommand()).redirectError(new File("/dev/null")).start();
+                Process p = new ProcessBuilder("ssh", command.getEndpoint(), command.getCommand()).redirectError(new File("/dev/null")).start();
                 p.waitFor();
                 if (p.exitValue() != 0) {
                     LOG.warn("ssh exited unsuccessfully. Return code: {}", p.exitValue());
                 } else {
-                    // TODO move before p.waitFor()?
+                    // TODO move toString before p.waitFor()?
                     String sshStdOut = CharStreams.toString(new InputStreamReader(p.getInputStream()));
-                    Map<Short, List<Flow>> result = SshParser.parseResult(sshStdOut);
-                    return result.values().stream()
-                            .mapToInt(List::size)
-                            .sum();
+                    return SshParser.parseResult(sshStdOut);
                 }
             } catch (InterruptedException | IOException e) {
                 LOG.warn("Unable to ssh into switch {}", iofSwitch.getId());
             }
-            return 0;
+            return emptyList();
         });
-        return new Snapshot(timestamp, numFlows);
+
+        // TODO fill in missing values (missing/disconnected switches)?
+        Snapshot snapshot = new Snapshot();
+        snapshot.setTimestamp(timestamp);
+        snapshot.setNumRules(flows.entrySet().stream()
+                .collect(toMap(
+                        e -> e.getKey(),
+                        e -> e.getValue().size())));
+        snapshot.setClientMeasurements(flows.entrySet().stream()
+                .collect(toMap(
+                        e -> e.getKey(),
+                        e -> extractClientMeasurements(e.getValue(), e.getKey()))));
+        List<Measurement> serverMeasurements = flows.entrySet().stream()
+                .map(e -> extractServerMeasurements(e.getValue(), e.getKey(), servers))
+                .flatMap(List::stream)
+                .collect(toMap(
+                        msmt -> msmt.getPrefix(),
+                        msmt -> msmt,
+                        Measurement::add))
+                .values().stream()
+                .collect(toList());
+        snapshot.setServerMeasurements(serverMeasurements);
+
+        return snapshot;
+    }
+
+    private static List<Measurement> extractClientMeasurements(List<Flow> flows, DatapathId dpid) {
+        short measurementTableId = MessageBuilder.getMeasurementTableId(dpid).getValue();
+        Map<IPv4AddressWithMask, Measurement> measurementsByPrefix = flows.stream()
+                .filter(flow -> flow.getTableId() == measurementTableId)
+                .filter(flow -> flow.getCookie().getValue() != 0)
+                .map(flow -> new Measurement(flow))
+                .collect(toMap(
+                        msmt -> msmt.getPrefix(),
+                        msmt -> msmt,
+                        Measurement::add));
+        return new ArrayList<>(measurementsByPrefix.values());
+    }
+
+    private static List<Measurement> extractServerMeasurements(List<Flow> flows, DatapathId dpid, Set<IPv4Address> servers) {
+        short forwardingTableId = MessageBuilder.getForwardingTableId(dpid).getValue();
+        return flows.stream()
+                .filter(flow -> flow.getTableId() == forwardingTableId)
+                .filter(flow -> flow.getPrefix().getMask().asCidrMaskLength() == 32)
+                .filter(flow -> servers.contains(flow.getPrefix().getValue()))
+                .map(flow -> new Measurement(flow))
+                .collect(toList());
     }
 
     private List<IOFSwitch> getActiveManagedSwitches() {
