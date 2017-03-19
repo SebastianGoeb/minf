@@ -21,15 +21,15 @@ def ip2int(ip):
 def extractServerByteCounts(datum):
     return {msmt['prefix'].split('/')[0]: msmt['bytes'] for msmt in datum['serverMeasurements']}
 
-def calculateServerRates(serverByteCounts, prevServerByteCounts=None):
-    if not prevServerByteCounts:
-        prevServerByteCounts = {k: 0 for k, v in serverByteCounts.iteritems()}
-    return {k: v - prevServerByteCounts[k] for k, v in serverByteCounts.iteritems()}
+def calculateServerRates(serverByteCounts, prevServerByteCounts=None, interval=None):
+    if not prevServerByteCounts or not interval:
+        return {ip: float(0) for ip, byteCount in serverByteCounts.iteritems()}
+    return {ip: float(byteCount - prevServerByteCounts[ip]) / (interval / 1000) for ip, byteCount in serverByteCounts.iteritems()}
 
 def calculateLoadImbalance(serverRates):
     rates = serverRates.values()
-    max_rate = float(max(rates))
-    avg_rate = float(sum(rates)) / len(rates)
+    max_rate = max(rates)
+    avg_rate = sum(rates) / len(rates)
     if avg_rate == 0:
         return None
     else:
@@ -52,7 +52,7 @@ for rawDatum in rawData:
     timestamp = rawDatum['timestamp'] - timestampOffset
     numRules = rawDatum['numRules']
     serverByteCounts = extractServerByteCounts(rawDatum)
-    serverRates = calculateServerRates(serverByteCounts, data[-1]['serverByteCounts'] if data else None)
+    serverRates = calculateServerRates(serverByteCounts, data[-1]['serverByteCounts'] if data else None, timestamp - data[-1]['timestamp'] if data else None)
     loadImbalance = calculateLoadImbalance(serverRates)
 
     # Package and append processed datum
