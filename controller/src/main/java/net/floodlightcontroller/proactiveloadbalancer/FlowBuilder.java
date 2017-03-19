@@ -1,6 +1,5 @@
 package net.floodlightcontroller.proactiveloadbalancer;
 
-import com.google.common.collect.Ordering;
 import net.floodlightcontroller.proactiveloadbalancer.domain.*;
 import net.floodlightcontroller.proactiveloadbalancer.util.IPUtil;
 import net.floodlightcontroller.proactiveloadbalancer.util.PrefixTrie;
@@ -8,8 +7,6 @@ import net.floodlightcontroller.proactiveloadbalancer.util.PrefixTrie.Node;
 import org.projectfloodlight.openflow.types.DatapathId;
 import org.projectfloodlight.openflow.types.IPv4Address;
 import org.projectfloodlight.openflow.types.IPv4AddressWithMask;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.*;
 
@@ -20,145 +17,27 @@ import static java.util.stream.Collectors.toMap;
 
 class FlowBuilder {
 
-    private static final Logger LOG = LoggerFactory.getLogger(FlowBuilder.class);
-
-    static List<LoadBalancingFlow> buildFlowsClassic(Config config, List<LoadBalancingFlow> flows, PrefixTrie<Double> traffic) {
-        // TODO do this more cleanly
+    static List<LoadBalancingFlow> buildConnectionFlows(List<LoadBalancingFlow> flows, Map<IPv4Address, Double> rates, Map<IPv4Address, Double> weights) {
         if (flows == null) {
             flows = emptyList();
         }
 
-        List<IPv4Address> servers = config.getTopology().getServers();
-        Random random = new Random();
+        // Find least utilized server (weighted)
+        IPv4Address leastUtilizedServer = rates.entrySet().stream()
+                .min(comparing(e -> e.getValue() / weights.get(e.getKey())))
+                .map(e -> e.getKey())
+                .orElse(null);
 
-        // TODO respect weights
-        Map<IPv4Address, Double> weights = config.getWeights();
-
-        // TODO in place?
-        ArrayList<LoadBalancingFlow> newFlows = new ArrayList<>(flows);
-        newFlows.replaceAll(flow -> {
+        // Put any new flows on that server
+        List<LoadBalancingFlow> newFlows = new ArrayList<>(flows.size());
+        for (LoadBalancingFlow flow : flows) {
             if (flow.getDip() != null) {
-                return flow;
+                newFlows.add(flow);
             } else {
-                IPv4Address randomDip = servers.get(random.nextInt(servers.size()));
-                return new LoadBalancingFlow(flow.getPrefix(), randomDip);
+                newFlows.add(new LoadBalancingFlow(flow.getPrefix(), leastUtilizedServer));
             }
-        });
+        }
         return newFlows;
-    }
-
-	static List<LoadBalancingFlow> buildFlowsUniform(Config config, List<LoadBalancingFlow> flows) {
-        Map<IPv4Address, Double> weights = config.getWeights();
-        Topology topology = config.getTopology();
-        IPv4AddressWithMask clientRange = IPUtil.base(config.getClientRange());
-
-        // sort dips
-		List<IPv4Address> sortedServers = Ordering.natural().immutableSortedCopy(topology.getServers());
-
-		// scale weights to int values summing to next power of 2
-		int bits = sortedServers.size() == 0 ? 0 : 32 - Integer.numberOfLeadingZeros(sortedServers.size() - 1);
-		List<Double> sortedWeights = sortedServers.stream()
-                .map(server -> weights.get(server))
-				.collect(toList());
-		List<Integer> scaledWeights = FlowBuilder.scaleWeights(sortedWeights,1 << bits);
-
-		// Split weights into powers of 2
-		List<IPv4Address> splitDips = new ArrayList<>();
-		List<Integer> splitWeights = new ArrayList<>();
-		for (int i = 0; i < scaledWeights.size(); i++) {
-			int weight = scaledWeights.get(i);
-			for (int j = 1; j <= weight; j <<= 1) {
-				if ((j & weight) != 0) {
-					splitWeights.add(j);
-					splitDips.add(sortedServers.get(i));
-				}
-			}
-		}
-
-		// Turn into prefixes
-		List<LoadBalancingFlow> newFlows = new ArrayList<>();
-		int valueIncrement = Integer.MIN_VALUE >>> (clientRange.getMask().asCidrMaskLength() + bits - 1);
-		int value = clientRange.getValue().getInt();
-		int mask = IPv4Address.ofCidrMaskLength((clientRange.getMask().asCidrMaskLength() + bits)).getInt();
-		for (int i = 0; i < splitWeights.size(); i++) {
-			int weight = splitWeights.get(i);
-			IPv4AddressWithMask prefix = IPv4Address.of(value).withMask(IPv4Address.of(mask * weight));
-			newFlows.add(new LoadBalancingFlow(prefix, splitDips.get(i)));
-			value += valueIncrement * weight;
-		}
-
-		return newFlows;
-	}
-
-	static List<LoadBalancingFlow> buildFlowsNonUniform(Config config, List<LoadBalancingFlow> flows, PrefixTrie<Double> traffic) {
-	    // TODO don't defer to uniform algorithm
-        return buildFlowsUniform(config, flows);
-	}
-
-	static Map<DatapathId, List<LoadBalancingFlow>> buildPhysicalFlows(Config config, List<LoadBalancingFlow> logicalFlows, Map<DatapathId, IPv4Address> vips) {
-        List<DatapathId> toposortedDpids = toposortSwitches(config.getTopology());
-
-        // Group flows by dip
-        // TODO do this more cleanly, or even per switch?
-        Map<IPv4Address, List<LoadBalancingFlow>> flowsByDip = new HashMap<>();
-        for (IPv4Address dip : config.getTopology().getServers()) {
-            flowsByDip.put(dip, logicalFlows.stream().filter(flow -> flow.getDip().equals(dip)).collect(toList()));
-        }
-
-        // Calculate downstream flows for load balancers
-        Map<DatapathId, List<LoadBalancingFlow>> flowsByDpid = new HashMap<>();
-        for (DatapathId dpid : toposortedDpids) {
-            List<LoadBalancingFlow> flows = new ArrayList<>();
-            // Add switch -> server flows
-            Map<IPv4Address, Integer> servers = config.getTopology().getDownlinksToServers().get(dpid);
-            for (IPv4Address dip : servers.keySet()) {
-                flows.addAll(flowsByDip.get(dip));
-            }
-            // Add switch -> switch flows
-            Map<DatapathId, Integer> downstreamSwitches = config.getTopology().getDownlinksToSwitches().get(dpid);
-            for (DatapathId downstreamDpid : downstreamSwitches.keySet()) {
-                IPv4Address downstreamVip = vips.get(downstreamDpid);
-                List<LoadBalancingFlow> downstreamFlows = flowsByDpid.get(downstreamDpid).stream()
-                        .map(flow -> new LoadBalancingFlow(flow.getPrefix(), downstreamVip))
-                        .collect(toList());
-                flows.addAll(downstreamFlows);
-            }
-            flowsByDpid.put(dpid, mergeContiguousFlows(flows));
-        }
-
-        return flowsByDpid;
-    }
-
-    static List<LoadBalancingFlow> mergeContiguousFlows(List<LoadBalancingFlow> flows) {
-        Map<IPv4AddressWithMask, IPv4Address> flowsAsMap = flows.stream().collect(toMap(
-                flow -> flow.getPrefix(),
-                flow -> flow.getDip()));
-        PrefixTrie<IPv4Address> tree = PrefixTrie.inflate(IPv4AddressWithMask.of("0.0.0.0/0"),
-                null, flows.stream().map(LoadBalancingFlow::getPrefix).collect(toList()));
-        tree.traversePostOrder((node, prefix) -> {
-            if (flowsAsMap.containsKey(prefix)) {
-                node.setValue(flowsAsMap.get(prefix));
-            }
-            Node<IPv4Address> child0 = node.getChild0();
-            Node<IPv4Address> child1 = node.getChild1();
-            if (child0 != null && child1 != null) {
-                IPv4Address ip0 = child0.getValue();
-                IPv4Address ip1 = child1.getValue();
-                if (ip0 != null && ip1 != null && ip0.equals(ip1)) {
-                    node.collapse();
-                    node.setValue(ip0);
-                }
-            }
-        });
-
-        List<LoadBalancingFlow> result = new ArrayList<>();
-        tree.traversePreOrder((node, prefix) -> {
-            if (node.getValue() != null) {
-                result.add(new LoadBalancingFlow(prefix, node.getValue()));
-            }
-        });
-
-        return result;
     }
 
     static List<IPv4AddressWithMask> buildMeasurementFlows(Collection<Measurement> measurements, Config config) {
@@ -218,7 +97,74 @@ class FlowBuilder {
         return forwardingFlows;
     }
 
-    static PrefixTrie<Double> mergeMeasurements(Collection<Measurement> measurements, Config config) {
+    static Map<DatapathId, List<LoadBalancingFlow>> buildPhysicalFlows(Config config, List<LoadBalancingFlow> logicalFlows, Map<DatapathId, IPv4Address> vips) {
+        List<DatapathId> toposortedDpids = toposortSwitches(config.getTopology());
+
+        // Group flows by dip
+        // TODO do this more cleanly, or even per switch?
+        Map<IPv4Address, List<LoadBalancingFlow>> flowsByDip = new HashMap<>();
+        for (IPv4Address dip : config.getTopology().getServers()) {
+            flowsByDip.put(dip, logicalFlows.stream().filter(flow -> flow.getDip().equals(dip)).collect(toList()));
+        }
+
+        // Calculate downstream flows for load balancers
+        Map<DatapathId, List<LoadBalancingFlow>> flowsByDpid = new HashMap<>();
+        for (DatapathId dpid : toposortedDpids) {
+            List<LoadBalancingFlow> flows = new ArrayList<>();
+            // Add switch -> server flows
+            Map<IPv4Address, Integer> servers = config.getTopology().getDownlinksToServers().get(dpid);
+            for (IPv4Address dip : servers.keySet()) {
+                flows.addAll(flowsByDip.get(dip));
+            }
+            // Add switch -> switch flows
+            Map<DatapathId, Integer> downstreamSwitches = config.getTopology().getDownlinksToSwitches().get(dpid);
+            for (DatapathId downstreamDpid : downstreamSwitches.keySet()) {
+                IPv4Address downstreamVip = vips.get(downstreamDpid);
+                List<LoadBalancingFlow> downstreamFlows = flowsByDpid.get(downstreamDpid).stream()
+                        .map(flow -> new LoadBalancingFlow(flow.getPrefix(), downstreamVip))
+                        .collect(toList());
+                flows.addAll(downstreamFlows);
+            }
+            flowsByDpid.put(dpid, mergeContiguousFlows(flows));
+        }
+
+        return flowsByDpid;
+    }
+
+    // Helpers
+    static List<LoadBalancingFlow> mergeContiguousFlows(List<LoadBalancingFlow> flows) {
+        Map<IPv4AddressWithMask, IPv4Address> flowsAsMap = flows.stream().collect(toMap(
+                flow -> flow.getPrefix(),
+                flow -> flow.getDip()));
+        PrefixTrie<IPv4Address> tree = PrefixTrie.inflate(IPv4AddressWithMask.of("0.0.0.0/0"),
+                null, flows.stream().map(LoadBalancingFlow::getPrefix).collect(toList()));
+        tree.traversePostOrder((node, prefix) -> {
+            if (flowsAsMap.containsKey(prefix)) {
+                node.setValue(flowsAsMap.get(prefix));
+            }
+            Node<IPv4Address> child0 = node.getChild0();
+            Node<IPv4Address> child1 = node.getChild1();
+            if (child0 != null && child1 != null) {
+                IPv4Address ip0 = child0.getValue();
+                IPv4Address ip1 = child1.getValue();
+                if (ip0 != null && ip1 != null && ip0.equals(ip1)) {
+                    node.collapse();
+                    node.setValue(ip0);
+                }
+            }
+        });
+
+        List<LoadBalancingFlow> result = new ArrayList<>();
+        tree.traversePreOrder((node, prefix) -> {
+            if (node.getValue() != null) {
+                result.add(new LoadBalancingFlow(prefix, node.getValue()));
+            }
+        });
+
+        return result;
+    }
+
+    private static PrefixTrie<Double> mergeMeasurements(Collection<Measurement> measurements, Config config) {
         Objects.requireNonNull(measurements);
 
         double total = measurements.stream()
@@ -263,31 +209,6 @@ class FlowBuilder {
             }
         });
         return tree;
-    }
-
-	// Helpers
-    private static List<Integer> scaleWeights(List<Double> weights, double total) {
-        // Cumulative sum
-        double[] cumul = new double[weights.size()];
-        double sum = 0;
-        for (int i = 0; i < cumul.length; i++) {
-            sum += weights.get(i);
-            cumul[i] = sum;
-        }
-
-        // Scale and round
-        int[] scaled = new int[cumul.length];
-        for (int i = 0; i < cumul.length; i++) {
-            scaled[i] = (int) Math.round(cumul[i] * total / sum);
-        }
-
-        // Un-cumulative
-        List<Integer> normalizedWeights = new ArrayList<>(scaled.length);
-        normalizedWeights.add(scaled[0]);
-        for (int i = 1; i < scaled.length; i++) {
-            normalizedWeights.add(scaled[i] - scaled[i - 1]);
-        }
-        return normalizedWeights;
     }
 
     private static List<DatapathId> toposortSwitches(Topology topology) {

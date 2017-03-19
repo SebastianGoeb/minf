@@ -17,7 +17,6 @@ import net.floodlightcontroller.packet.TCP;
 import net.floodlightcontroller.proactiveloadbalancer.domain.*;
 import net.floodlightcontroller.proactiveloadbalancer.util.IPUtil;
 import net.floodlightcontroller.proactiveloadbalancer.util.IPv4AddressRange;
-import net.floodlightcontroller.proactiveloadbalancer.util.PrefixTrie;
 import net.floodlightcontroller.proactiveloadbalancer.web.ProactiveLoadBalancerWebRoutable;
 import net.floodlightcontroller.restserver.IRestApiService;
 import net.floodlightcontroller.threadpool.IThreadPoolService;
@@ -51,8 +50,6 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
     // Constants
     // TODO configurable?
     private static final long SNAPSHOT_INTERVAL = 1;
-    private static final long SERVER_MEASUREMENT_INTERVAL = 2;
-    private static final long SNAPSHOT_HISTORY_DURATION = (60 + SNAPSHOT_INTERVAL);
 
     // Services
     private IFloodlightProviderService floodlightProvider;
@@ -130,7 +127,7 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
 
     private void handleClientConnection(IPv4Address client) {
         if (isClientUnknown(client)) {
-            LOG.info("Packet in. Handle connection: {} -> random", client);
+            LOG.info("Packet in. Handle connection: {}", client);
             logicalLoadBalancingFlows.get(connection).add(new LoadBalancingFlow(client.withMaskOfLength(32), null));
             updateConnectionLoadBalancing();
             writeLoadBalancingFlows(getActiveManagedSwitches(), singletonList(connection));
@@ -243,8 +240,12 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
     private void teardown() {
         if (config != null) {
             LOG.info("Tearing down all switches");
-            clientMeasurementFuture.cancel(true);
-            snapshotFuture.cancel(true);
+            if (clientMeasurementFuture != null) {
+                clientMeasurementFuture.cancel(true);
+            }
+            if (snapshotFuture != null) {
+                snapshotFuture.cancel(true);
+            }
             // TODO wait for that to complete
             try {
                 Thread.sleep(1000);
@@ -288,35 +289,40 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
 
             // Initialize snapshots
             snapshotHistory = new LinkedList<>();
+            serverRates = config.getTopology().getServers().stream()
+                    .collect(toMap(server -> server, server -> 0D));
 
             // Initialize load balancing flows
-            logicalLoadBalancingFlows = new HashMap<>();
-            logicalLoadBalancingFlows.put(prefix, singletonList(
-                    new LoadBalancingFlow(IPUtil.base(config.getStrategyRanges().get(prefix)), null)));
             physicalLoadBalancingFlows = new HashMap<>();
-            updatePrefixLoadBalancing();
+            logicalLoadBalancingFlows = new HashMap<>();
+            if (config.getStrategyRanges().containsKey(prefix)) {
+                logicalLoadBalancingFlows.put(prefix, singletonList(
+                        new LoadBalancingFlow(IPUtil.base(config.getStrategyRanges().get(prefix)), null)));
+                updatePrefixLoadBalancing();
+            }
             updateConnectionLoadBalancing();
             writeLoadBalancingFlows(getActiveManagedSwitches(), config.getStrategyRanges().keySet());
 
             // Start snapshot cycle
             snapshotFuture = threadPoolService.getScheduledExecutor().scheduleAtFixedRate(() -> {
                 Snapshot snapshot = getSnapshot();
-                LOG.info("snapshot: {}", snapshot.toJson());
-
                 snapshotHistory.addFirst(snapshot);
-                snapshotHistory.removeIf(snap -> snapshot.getTimestamp() - snap.getTimestamp() > TimeUnit.SECONDS.toMillis(SNAPSHOT_HISTORY_DURATION));
-                serverRates = calculateRatesAsMovingAverage(SERVER_MEASUREMENT_INTERVAL * 1000);
+                snapshotHistory.removeIf(snap -> snapshot.getTimestamp() - snap.getTimestamp() > TimeUnit.SECONDS.toMillis(config.getMeasurementInterval()));
+                serverRates = calculateRatesAsMovingAverage(config.getServerMeasurementInterval() * 1000);
+                LOG.info("snapshot: {}", snapshot.toJson());
             }, 0, SNAPSHOT_INTERVAL, TimeUnit.SECONDS);
 
             // Start client prefix measurement cycle
-            clientMeasurementFuture = threadPoolService.getScheduledExecutor().scheduleAtFixedRate(() -> {
-                updateClientMeasurements();
-                writeClientMeasurementFlows(getActiveManagedSwitches());
-                if (config.getStrategyRanges().keySet().contains(prefix)) {
-                    updatePrefixLoadBalancing();
-                    writeLoadBalancingFlows(getActiveManagedSwitches(), singletonList(prefix));
-                }
-            }, config.getMeasurementInterval(), config.getMeasurementInterval(), TimeUnit.SECONDS);
+            if (config.getStrategyRanges().containsKey(prefix)) {
+                clientMeasurementFuture = threadPoolService.getScheduledExecutor().scheduleAtFixedRate(() -> {
+                    updateClientMeasurements();
+                    writeClientMeasurementFlows(getActiveManagedSwitches());
+                    if (config.getStrategyRanges().keySet().contains(prefix)) {
+                        updatePrefixLoadBalancing();
+                        writeLoadBalancingFlows(getActiveManagedSwitches(), singletonList(prefix));
+                    }
+                }, config.getMeasurementInterval(), config.getMeasurementInterval(), TimeUnit.SECONDS);
+            }
         }
     }
 
@@ -515,18 +521,11 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
     }
 
     private List<LoadBalancingFlow> buildConnectionLogicalFlows() {
-        // Merge measurements into single tree
-        // TODO refactor into field
-        List<Measurement> allMeasurements = clientMeasurements.values().stream()
-                .flatMap(Collection::stream)
-                .collect(toList());
-        PrefixTrie<Double> mergedMeasurements = FlowBuilder.mergeMeasurements(allMeasurements, config);
-
         // Previous logical flows
-        List<LoadBalancingFlow> logicalFlows = logicalLoadBalancingFlows.get(prefix);
+        List<LoadBalancingFlow> logicalFlows = logicalLoadBalancingFlows.get(connection);
 
         // Build logical flows
-        return FlowBuilder.buildFlowsClassic(config, logicalFlows, mergedMeasurements);
+        return FlowBuilder.buildConnectionFlows(logicalFlows, serverRates, config.getWeights());
     }
 
     private static Map<DatapathId, List<Measurement>> getClientMeasurements(Iterable<IOFSwitch> switches) {
@@ -647,18 +646,18 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
             MeasurementCommand command = config.getMeasurementCommands().get(dpid);
             try {
                 Process p = new ProcessBuilder("ssh", command.getEndpoint(), command.getCommand()).redirectError(new File("/dev/null")).start();
+                String sshStdOut = CharStreams.toString(new InputStreamReader(p.getInputStream()));
                 p.waitFor();
-                if (p.exitValue() != 0) {
-                    LOG.warn("ssh exited unsuccessfully. Return code: {}", p.exitValue());
-                } else {
-                    // TODO move toString before p.waitFor()?
-                    String sshStdOut = CharStreams.toString(new InputStreamReader(p.getInputStream()));
+                if (p.exitValue() == 0) {
                     return SshParser.parseResult(sshStdOut);
+                } else {
+                    LOG.warn("ssh exited unsuccessfully. Return code: {}", p.exitValue());
+                    return emptyList();
                 }
             } catch (InterruptedException | IOException e) {
                 LOG.warn("Unable to ssh into switch {}", iofSwitch.getId());
+                return emptyList();
             }
-            return emptyList();
         });
 
         // TODO fill in missing values (missing/disconnected switches)?

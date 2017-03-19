@@ -48,6 +48,9 @@ public class Config {
     private double measurementThreshold;
 
     @JsonProperty
+    private long serverMeasurementInterval;
+
+    @JsonProperty
     private boolean ignoreMeasurements;
 
     @JsonProperty
@@ -172,12 +175,22 @@ public class Config {
         return this;
     }
 
+    public long getServerMeasurementInterval() {
+        return serverMeasurementInterval;
+    }
+
+    public Config setServerMeasurementInterval(long serverMeasurementInterval) {
+        this.serverMeasurementInterval = serverMeasurementInterval;
+        return this;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         Config config = (Config) o;
         return measurementInterval == config.measurementInterval &&
+                serverMeasurementInterval == config.serverMeasurementInterval &&
                 Double.compare(config.measurementThreshold, measurementThreshold) == 0 &&
                 ignoreMeasurements == config.ignoreMeasurements &&
                 Objects.equals(vip, config.vip) &&
@@ -194,6 +207,7 @@ public class Config {
     public int hashCode() {
         return Objects.hash(vip,
                 dVipRange,
+                serverMeasurementInterval,
                 strategyRanges,
                 topology,
                 loadBalancers,
