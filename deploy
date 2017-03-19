@@ -24,13 +24,13 @@ deploy_controller()
 
 deploy_driver()
 {
-    local jar="$DIR/driver/target/driver-jar-with-dependencies.jar"
+    local jar="$DIR/driver/target/driver.jar"
     scp -o ConnectTimeout=$TIMEOUT $jar nsl200.inf.ed.ac.uk:~ &>/dev/null
 }
 
 deploy_server()
 {
-    local jar="$DIR/server/target/server-jar-with-dependencies.jar"
+    local jar="$DIR/server/target/server.jar"
     scp -o ConnectTimeout=$TIMEOUT $jar $1.inf.ed.ac.uk:~ &>/dev/null
 }
 
