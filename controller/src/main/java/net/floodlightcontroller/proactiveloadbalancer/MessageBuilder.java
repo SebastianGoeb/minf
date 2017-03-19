@@ -96,7 +96,7 @@ class MessageBuilder {
         return TableId.of(getBaseTableId(dpid) + MEASUREMENT_TABLE_ID_OFFSET);
     }
 
-    private static TableId getLoadBalancingTableId(DatapathId dpid) {
+    static TableId getLoadBalancingTableId(DatapathId dpid) {
         return TableId.of(getBaseTableId(dpid) + LOAD_BALANCING_TABLE_ID_OFFSET);
     }
 
@@ -213,6 +213,7 @@ class MessageBuilder {
                 .buildFlowDelete()
                 .setTableId(getMeasurementTableId(dpid))
                 .setCookie(MEASUREMENT_COOKIE)
+                .setCookieMask(U64.NO_MASK)
                 .build());
     }
 

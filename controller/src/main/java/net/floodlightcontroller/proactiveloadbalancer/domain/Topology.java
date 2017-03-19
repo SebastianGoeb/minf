@@ -89,7 +89,7 @@ public class Topology {
     }
 
     public boolean isCoreSwitch(DatapathId dpid) {
-        return getUplinksToClients().containsKey(dpid);
+        return getUplinksToClients().containsKey(dpid) && !getUplinksToClients().get(dpid).isEmpty();
     }
 
     public List<DatapathId> getAccessSwitches() {

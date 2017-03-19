@@ -76,6 +76,8 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
     private List<Transition> transitions;
     private Map<Strategy, Map<DatapathId, List<LoadBalancingFlow>>> physicalLoadBalancingFlows;
 
+    private List<MeasurementLog> serverMeasurementLog;
+
     // ----------------------------------------------------------------
     // - IOFMessageListener methods
     // ----------------------------------------------------------------
@@ -246,6 +248,8 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
                 e.printStackTrace();
             }
 
+            serverMeasurementLog = null;
+
             getActiveManagedSwitches().forEach(iofSwitch -> {
                 DatapathId dpid = iofSwitch.getId();
                 OFFactory factory = iofSwitch.getOFFactory();
@@ -266,7 +270,11 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
             // TODO assign vips more intelligently?
             int vipBase = config.getdVipRange().getValue().getInt();
             for (DatapathId dpid : switches) {
-                vips.put(dpid, IPv4Address.of(vipBase + (int) dpid.getLong()));
+                if (config.getTopology().isCoreSwitch(dpid)) {
+                    vips.put(dpid, config.getVip());
+                } else {
+                    vips.put(dpid, IPv4Address.of(vipBase + (int) dpid.getLong()));
+                }
             }
 
             // Initialize permanent flows
@@ -280,6 +288,7 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
             serverMeasurements = config.getTopology().getServers().stream().collect(toMap(ip -> ip, ip -> 0L));
             serverRates = config.getTopology().getServers().stream().collect(toMap(ip -> ip, ip -> 0D));
             serverMeasurementTimestamp = System.currentTimeMillis();
+            serverMeasurementLog = new LinkedList<>();
 
             // Initialize load balancing flows
             logicalLoadBalancingFlows = new HashMap<>();
@@ -289,6 +298,12 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
             updatePrefixLoadBalancing();
             updateConnectionLoadBalancing();
             writeLoadBalancingFlows(getActiveManagedSwitches(), config.getStrategyRanges().keySet());
+
+            // Start snapshot cycle
+            threadPoolService.getScheduledExecutor().scheduleAtFixedRate(() -> {
+                Snapshot snapshot = getSnapshot();
+                LOG.info("snapshot: {}", snapshot.toJson());
+            }, 0, 1, TimeUnit.SECONDS);
 
             // Start client prefix measurement cycle
             clientMeasurementFuture = threadPoolService.getScheduledExecutor().scheduleAtFixedRate(() -> {
@@ -300,9 +315,19 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
                 }
             }, config.getMeasurementInterval(), config.getMeasurementInterval(), TimeUnit.SECONDS);
             // TODO run a shorter measurement interval the first time?
+            long startMillis = System.currentTimeMillis();
             serverMeasurementFuture = threadPoolService.getScheduledExecutor().scheduleAtFixedRate(() -> {
-                updateServerMeasurements();
-                logServerMeasurements();
+                try {
+                    updateServerMeasurements();
+                    logServerMeasurements();
+                    //                serverMeasurementLog.add(new MeasurementLog(
+                    //                        System.currentTimeMillis() - startMillis,
+                    //                        new HashMap<>(serverMeasurements),
+                    //
+                    //                ));
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
             }, 2, 2, TimeUnit.SECONDS);
         }
     }
@@ -588,6 +613,7 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
                     String result = CharStreams.toString(new InputStreamReader(p.getInputStream()));
                     return SshParser.parseResult(result, MessageBuilder.getForwardingTableId(dpid).getValue()).stream()
                             .filter(m -> m.getPrefix().getMask().asCidrMaskLength() == 32)
+                            .filter(m -> config.getTopology().getServers().contains(m.getPrefix().getValue()))
                             .collect(toList());
                 }
             } catch (InterruptedException | IOException e) {
@@ -595,6 +621,36 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
             }
             return emptyList();
         });
+    }
+
+    private Snapshot getSnapshot() {
+        long timestamp = System.currentTimeMillis();
+        List<IOFSwitch> switches = getActiveManagedSwitches();
+        Map<DatapathId, Integer> numFlows = SwitchCommunicator.concurrently(switches, (iofSwitch) -> {
+            DatapathId dpid = iofSwitch.getId();
+
+            MeasurementCommand command = config.getMeasurementCommands().get(dpid);
+            try {
+                Process p = new ProcessBuilder("ssh",
+                        command.getEndpoint(),
+                        command.getCommand()).redirectError(new File("/dev/null")).start();
+                p.waitFor();
+                if (p.exitValue() != 0) {
+                    LOG.warn("ssh exited unsuccessfully. Return code: {}", p.exitValue());
+                } else {
+                    // TODO move before p.waitFor()?
+                    String sshStdOut = CharStreams.toString(new InputStreamReader(p.getInputStream()));
+                    Map<Short, List<Flow>> result = SshParser.parseResult(sshStdOut);
+                    return result.values().stream()
+                            .mapToInt(List::size)
+                            .sum();
+                }
+            } catch (InterruptedException | IOException e) {
+                LOG.warn("Unable to ssh into switch {}", iofSwitch.getId());
+            }
+            return 0;
+        });
+        return new Snapshot(timestamp, numFlows);
     }
 
     private List<IOFSwitch> getActiveManagedSwitches() {

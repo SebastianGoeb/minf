@@ -60,6 +60,9 @@ public class Config {
     @JsonDeserialize(keyUsing = DatapathIdKeyDeserializer.class)
     private Map<DatapathId, MeasurementCommand> measurementCommands;
 
+    @JsonProperty
+    private String measurementLogPath;
+
     public IPv4Address getVip() {
         return vip;
     }
@@ -160,6 +163,15 @@ public class Config {
         return this;
     }
 
+    public String getMeasurementLogPath() {
+        return measurementLogPath;
+    }
+
+    public Config setMeasurementLogPath(String measurementLogPath) {
+        this.measurementLogPath = measurementLogPath;
+        return this;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -174,7 +186,8 @@ public class Config {
                 Objects.equals(topology, config.topology) &&
                 Objects.equals(loadBalancers, config.loadBalancers) &&
                 Objects.equals(weights, config.weights) &&
-                Objects.equals(measurementCommands, config.measurementCommands);
+                Objects.equals(measurementCommands, config.measurementCommands) &&
+                Objects.equals(measurementLogPath, config.measurementLogPath);
     }
 
     @Override
@@ -188,6 +201,7 @@ public class Config {
                 measurementThreshold,
                 ignoreMeasurements,
                 weights,
-                measurementCommands);
+                measurementCommands,
+                measurementLogPath);
     }
 }
