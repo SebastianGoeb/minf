@@ -4,6 +4,7 @@ import com.google.common.collect.Ordering;
 import net.floodlightcontroller.proactiveloadbalancer.domain.*;
 import net.floodlightcontroller.proactiveloadbalancer.util.IPUtil;
 import net.floodlightcontroller.proactiveloadbalancer.util.PrefixTrie;
+import net.floodlightcontroller.proactiveloadbalancer.util.PrefixTrie.Node;
 import org.projectfloodlight.openflow.types.DatapathId;
 import org.projectfloodlight.openflow.types.IPv4Address;
 import org.projectfloodlight.openflow.types.IPv4AddressWithMask;
@@ -15,6 +16,7 @@ import java.util.*;
 import static java.util.Collections.emptyList;
 import static java.util.Comparator.comparing;
 import static java.util.stream.Collectors.toList;
+import static java.util.stream.Collectors.toMap;
 
 class FlowBuilder {
 
@@ -103,28 +105,60 @@ class FlowBuilder {
             flowsByDip.put(dip, logicalFlows.stream().filter(flow -> flow.getDip().equals(dip)).collect(toList()));
         }
 
-        // Calculate downstream flow s for load balancers
+        // Calculate downstream flows for load balancers
         Map<DatapathId, List<LoadBalancingFlow>> flowsByDpid = new HashMap<>();
         for (DatapathId dpid : toposortedDpids) {
-            Map<DatapathId, Integer> switches = config.getTopology().getDownlinksToSwitches().get(dpid);
+            List<LoadBalancingFlow> flows = new ArrayList<>();
+            // Add switch -> server flows
             Map<IPv4Address, Integer> servers = config.getTopology().getDownlinksToServers().get(dpid);
-            flowsByDpid.put(dpid, new ArrayList<>());
-            // Add flows to servers
             for (IPv4Address dip : servers.keySet()) {
-                flowsByDpid.get(dpid).addAll(flowsByDip.get(dip));
+                flows.addAll(flowsByDip.get(dip));
             }
-            // Add previously calculated flows to this switch
-            for (DatapathId downstreamDpid : switches.keySet()) {
+            // Add switch -> switch flows
+            Map<DatapathId, Integer> downstreamSwitches = config.getTopology().getDownlinksToSwitches().get(dpid);
+            for (DatapathId downstreamDpid : downstreamSwitches.keySet()) {
                 IPv4Address downstreamVip = vips.get(downstreamDpid);
-                flowsByDpid.get(dpid).addAll(flowsByDpid.get(downstreamDpid).stream()
+                List<LoadBalancingFlow> downstreamFlows = flowsByDpid.get(downstreamDpid).stream()
                         .map(flow -> new LoadBalancingFlow(flow.getPrefix(), downstreamVip))
-                        .collect(toList()));
+                        .collect(toList());
+                flows.addAll(downstreamFlows);
             }
+            flowsByDpid.put(dpid, mergeContiguousFlows(flows));
         }
 
-        // TODO group flows into superflows
-
         return flowsByDpid;
+    }
+
+    static List<LoadBalancingFlow> mergeContiguousFlows(List<LoadBalancingFlow> flows) {
+        Map<IPv4AddressWithMask, IPv4Address> flowsAsMap = flows.stream().collect(toMap(
+                flow -> flow.getPrefix(),
+                flow -> flow.getDip()));
+        PrefixTrie<IPv4Address> tree = PrefixTrie.inflate(IPv4AddressWithMask.of("0.0.0.0/0"),
+                null, flows.stream().map(LoadBalancingFlow::getPrefix).collect(toList()));
+        tree.traversePostOrder((node, prefix) -> {
+            if (flowsAsMap.containsKey(prefix)) {
+                node.setValue(flowsAsMap.get(prefix));
+            }
+            Node<IPv4Address> child0 = node.getChild0();
+            Node<IPv4Address> child1 = node.getChild1();
+            if (child0 != null && child1 != null) {
+                IPv4Address ip0 = child0.getValue();
+                IPv4Address ip1 = child1.getValue();
+                if (ip0 != null && ip1 != null && ip0.equals(ip1)) {
+                    node.collapse();
+                    node.setValue(ip0);
+                }
+            }
+        });
+
+        List<LoadBalancingFlow> result = new ArrayList<>();
+        tree.traversePreOrder((node, prefix) -> {
+            if (node.getValue() != null) {
+                result.add(new LoadBalancingFlow(prefix, node.getValue()));
+            }
+        });
+
+        return result;
     }
 
     static List<IPv4AddressWithMask> buildMeasurementFlows(Collection<Measurement> measurements, Config config) {

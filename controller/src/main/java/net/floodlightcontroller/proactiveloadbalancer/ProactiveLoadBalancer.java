@@ -467,17 +467,22 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
     }
 
     private List<LoadBalancingFlow> buildPrefixLogicalFlows() {
-        List<WeightedPrefix> doubleMeasurements = null;
+        List<WeightedPrefix> doubleMeasurements = new ArrayList<>();
         if (config.isIgnoreMeasurements()) {
-            // Generate fake measurements
-            // TODO
-            if (config.getTopology().getServers().isEmpty()) {
-            } else {
+            // Generate uniform measurements
+            if (!config.getTopology().getServers().isEmpty()) {
                 int numberOfServers = config.getTopology().getServers().size();
-                int nextPowerOfTwo = 1 << (32 - Integer.numberOfLeadingZeros(numberOfServers - 1));
-                // FIXME don't use base prefix, you'll go over
+                int bits = 32 - Integer.numberOfLeadingZeros(numberOfServers - 1);
+                int nextPowerOfTwo = 1 << bits;
+                // FIXME don't use base prefix, it might be larger than client range
                 IPv4AddressWithMask base = IPUtil.base(config.getClientRange());
-                doubleMeasurements = null;
+                int baseAddr = base.getValue().getInt();
+                int maskLength = base.getMask().asCidrMaskLength() + bits;
+                int increment = 1 << (32 - maskLength);
+                for (int i = 0; i < nextPowerOfTwo; i++) {
+                    IPv4AddressWithMask prefix = IPv4Address.of(baseAddr + i * increment).withMaskOfLength(maskLength);
+                    doubleMeasurements.add(new WeightedPrefix(prefix, 1));
+                }
             }
         } else {
             // Convert long measurements to double measurements
@@ -498,6 +503,12 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
         if (mergedMeasurements.isEmpty()) {
             mergedMeasurements = singletonList(
                     new WeightedPrefix(range, 1));
+        }
+        double total = mergedMeasurements.stream()
+                .mapToDouble(WeightedPrefix::getWeight)
+                .sum();
+        if (total == 0) {
+            mergedMeasurements.forEach(wp -> wp.setWeight(1));
         }
 
         return GreedyPrefixAssigner.assignPrefixes(range, mergedMeasurements, servers);
