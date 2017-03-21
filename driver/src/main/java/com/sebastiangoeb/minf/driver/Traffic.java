@@ -1,9 +1,9 @@
 package com.sebastiangoeb.minf.driver;
 
-public class Traffic {
-	public Distribution localAddr;
-	public String rate;
-	public String size;
-	public int clients;
-	public String duration;
+class Traffic {
+	Distribution localAddr;
+	String rate;
+	String size;
+	int clients;
+	String duration;
 }

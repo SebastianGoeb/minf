@@ -31,7 +31,7 @@ public class Main {
 		}
 	}
 
-	public static Config parseArgs(String[] args) {
+	private static Config parseArgs(String[] args) {
 		// Create options
 		Options options = new Options();
 		options.addOption(Option.builder("d").longOpt("dry-run").argName("dry run").desc("Don't run any commands. Just print them.").build());
@@ -51,12 +51,12 @@ public class Main {
 			} else {
 				System.out.println("Please provide only one experiment json file or use stdin");
 				System.exit(1);
-				return null;
+				throw new RuntimeException();
 			}
 		} catch (ParseException exp) {
 			System.out.println(exp.getMessage());
 			System.exit(1);
-			return null;
+			throw new RuntimeException();
 		}
 	}
 

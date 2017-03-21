@@ -12,39 +12,46 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
-public class Experiment {
+class Experiment {
 
 	private static final String ADD_IP = "ip addr add {0}/32 dev {1}";
 	private static final String DEL_IP = "ip addr del {0}/32 dev {1}";
 	private static final String GET_DATA = "wget -O /dev/null --bind-address {0} --limit-rate {1} --tries={2} --timeout={3} http://{4}:8080/{5}";
 
-	public String intf;
-	public String remoteAddr;
-	public String localSubnet;
-	public List<Traffic> traffics;
+	@SuppressWarnings("unused")
+	private String intf;
 
-	public static Experiment fromStream(InputStream inputStream) {
+	@SuppressWarnings("unused")
+	private String remoteAddr;
+
+	@SuppressWarnings("unused")
+	private String localSubnet;
+
+	@SuppressWarnings({"unused", "MismatchedQueryAndUpdateOfCollection"})
+	private List<Traffic> traffics;
+
+	static Experiment fromStream(InputStream inputStream) {
 		try {
 			return new GsonBuilder().registerTypeAdapter(Distribution.class, new DistributionDeserializer()).create()
 					.fromJson(new InputStreamReader(inputStream), Experiment.class);
 		} catch (JsonSyntaxException | JsonIOException e) {
 			e.printStackTrace();
 			System.exit(1);
-			return null;
+			throw new RuntimeException();
 		}
 	}
 
-	public static Experiment fromFile(String fileName) {
+	static Experiment fromFile(String fileName) {
 		try {
 			return fromStream(new FileInputStream(fileName));
 		} catch (FileNotFoundException e) {
 			e.printStackTrace();
 			System.exit(1);
-			return null;
+			throw new RuntimeException();
 		}
 	}
 
-	public void perform(boolean dryRun, boolean verbose) {
+	void perform(boolean dryRun, boolean verbose) {
 		ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
 		List<ScheduledFuture<?>> futures = new ArrayList<>();
 
@@ -80,9 +87,9 @@ public class Experiment {
 						int retval = exec(requestCommand, dryRun);
 						if (dryRun) {
 							try {
-								Thread.sleep((long) ((double) Util.parseUnits(traffic.size) / Util.parseUnits(traffic.rate)
+								Thread.sleep((long) (Util.parseUnits(traffic.size) / Util.parseUnits(traffic.rate)
 										* 1000));
-							} catch (InterruptedException e) {
+							} catch (InterruptedException ignored) {
 							}
 						}
 						double duration = (System.currentTimeMillis() - startTime) / 1000.0;
@@ -103,14 +110,14 @@ public class Experiment {
 					// Randomize flow inter-arrival time
 					try {
 						Thread.sleep((long) (Math.random() / theoreticalRequestsPerSecond * 1000));
-					} catch (InterruptedException e) {
+					} catch (InterruptedException ignored) {
 					}
 				}, 0, 1, TimeUnit.NANOSECONDS));
 				
 				// Stagger requests
 				try {
 					Thread.sleep((long) (2 / theoreticalRequestsPerSecond * 1000));
-				} catch (InterruptedException e) {
+				} catch (InterruptedException ignored) {
 				}
 			}
 
@@ -151,7 +158,7 @@ public class Experiment {
 		}
 	}
 
-	public int exec(String command, boolean dryRun) {
+	private int exec(String command, boolean dryRun) {
 		try {
 			if (!dryRun) {
 				Process proc = new ProcessBuilder(command.split("\\s+")).redirectOutput(new File("/dev/null"))

@@ -1,17 +1,17 @@
 package com.sebastiangoeb.minf.driver;
 
+import org.apache.commons.math3.distribution.ConstantRealDistribution;
+import org.apache.commons.math3.distribution.NormalDistribution;
+import org.apache.commons.math3.distribution.RealDistribution;
+import org.apache.commons.math3.distribution.UniformRealDistribution;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import org.apache.commons.math3.distribution.ConstantRealDistribution;
-import org.apache.commons.math3.distribution.NormalDistribution;
-import org.apache.commons.math3.distribution.RealDistribution;
-import org.apache.commons.math3.distribution.UniformRealDistribution;
-
-public class Distribution {
+class Distribution {
 	private static Pattern termPattern = Pattern.compile("(\\w+)\\((.*)\\)");
 	
 	private List<RealDistribution> distributions;
@@ -41,24 +41,27 @@ public class Distribution {
 		this.distributions = distributions;
 	}
 
-	public static Distribution fromString(String expr) {
+	static Distribution fromString(String expr) {
 		String[] terms = expr.replace("\\s", "").split("\\+");
 		List<RealDistribution> dists = new ArrayList<>();
 		for (String term : terms) {
 			Matcher m = termPattern.matcher(term);
-			m.matches();
-			String type = m.group(1).toLowerCase();
-			List<Double> args = new ArrayList<>();
-			for (String arg : m.group(2).split(",")) {
-				args.add(Double.parseDouble(arg));
+			if (m.matches()) {
+				String type = m.group(1).toLowerCase();
+				List<Double> args = new ArrayList<>();
+				for (String arg : m.group(2).split(",")) {
+					args.add(Double.parseDouble(arg));
+				}
+				dists.add(getRealDistribution(type, args));
+			} else {
+				throw new IllegalArgumentException("Invalid term: " + term);
 			}
-			dists.add(getRealDistribution(type, args));
 		}
 
 		return new Distribution(dists);
 	}
 
-	public double sample() {
+	double sample() {
 		RealDistribution dist = distributions.get(new Random().nextInt(distributions.size()));
 		double sample = dist.sample();
 		while (sample < 0 || 1 < sample) {
