@@ -17,61 +17,45 @@ EndOfMessage
 
 deploy_controller()
 {
-    local jar="$DIR/floodlight/target/floodlight.jar"
-    local props="$DIR/controller/src/main/resources/floodlightloadbalancer.properties"
-    scp -o ConnectTimeout=$TIMEOUT $jar $props nsl002.inf.ed.ac.uk:~ &>/dev/null
+  echo -e "\033[1m**** Deploying Controller to nsl002 ****\033[0m"
+  local jar="$DIR/floodlight/target/floodlight.jar"
+  local props="$DIR/controller/src/main/resources/floodlightloadbalancer.properties"
+  scp -o ConnectTimeout=$TIMEOUT $jar $props nsl002:~
+  echo
 }
 
 deploy_driver()
 {
-    local jar="$DIR/driver/target/driver.jar"
-    scp -o ConnectTimeout=$TIMEOUT $jar nsl200.inf.ed.ac.uk:~ &>/dev/null
+  echo -e "\033[1m**** Deploying Driver to nsl200 ****\033[0m"
+  local jar="$DIR/driver/target/driver.jar"
+  scp -o ConnectTimeout=$TIMEOUT $jar nsl200:~
+  echo
 }
 
 deploy_server()
 {
-    local jar="$DIR/server/target/server.jar"
-    scp -o ConnectTimeout=$TIMEOUT $jar $1.inf.ed.ac.uk:~ &>/dev/null
+  local jar="$DIR/server/target/server.jar"
+  for i in $(seq 3 6); do
+    nsl="nsl$(printf %03d $i)"
+    echo -e "\033[1m**** Deploying Server to $nsl ****\033[0m"
+    scp -o ConnectTimeout=$TIMEOUT $jar $nsl:~
+    echo
+  done
 }
 
 # Parse args
-TITLE=""
+RAN_SOMETHING=0
 while getopts cdsh name; do
-    case $name in
-        c) CONTROLLER=1; TITLE="$TITLE Controller";;
-        d) DRIVER=1; TITLE="$TITLE Driver";;
-        s) SERVERS=1; TITLE="$TITLE Servers";;
-        h) print_help; exit 1;;
-    esac
+  case $name in
+    c) deploy_controller; RAN_SOMETHING=1;;
+    d) deploy_driver; RAN_SOMETHING=1;;
+    s) deploy_server; RAN_SOMETHING=1;;
+    h) print_help; exit 1;;
+  esac
 done
 
 # Print help if no args
-if [[ $TITLE == "" ]]; then
+if [[ $RAN_SOMETHING == 0 ]]; then
     print_help
     exit 1
-else
-    echo -e "\033[1m**** Deploying$TITLE ****\033[0m"
 fi
-
-# Deploy controller
-if [[ $CONTROLLER == 1 ]]; then
-    deploy_controller && echo -e "controller nsl002: success" || echo -e "controller nsl002: failed (retval $?)" &
-fi
-
-# Deploy driver
-if [[ $DRIVER == 1 ]]; then
-    deploy_driver && echo -e "driver     nsl200: success" || echo -e "driver     nsl200: failed (retval $?)" &
-fi
-
-# Deploy servers
-if [[ $SERVERS == 1 ]]; then
-    for i in $(seq 3 6); do
-        nsl="nsl$(printf %03d $i)"
-        deploy_server $nsl && echo -e "server     $nsl: success" || echo -e "server     $nsl: failed (retval $?)" &
-    done
-fi
-
-# Wait for background jobs
-for job in `jobs -p`; do
-    wait $job
-done
