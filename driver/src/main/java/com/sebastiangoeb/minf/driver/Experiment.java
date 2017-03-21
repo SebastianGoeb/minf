@@ -1,21 +1,16 @@
 package com.sebastiangoeb.minf.driver;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonIOException;
+import com.google.gson.JsonSyntaxException;
+
+import java.io.*;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-
-import com.google.gson.GsonBuilder;
-import com.google.gson.JsonIOException;
-import com.google.gson.JsonSyntaxException;
 
 public class Experiment {
 
@@ -27,12 +22,10 @@ public class Experiment {
 	public String remoteAddr;
 	public String localSubnet;
 	public List<Traffic> traffics;
-	
+
 	public static Experiment fromStream(InputStream inputStream) {
 		try {
-			return new GsonBuilder()
-					.registerTypeAdapter(Distribution.class, new DistributionDeserializer())
-					.create()
+			return new GsonBuilder().registerTypeAdapter(Distribution.class, new DistributionDeserializer()).create()
 					.fromJson(new InputStreamReader(inputStream), Experiment.class);
 		} catch (JsonSyntaxException | JsonIOException e) {
 			e.printStackTrace();
@@ -51,7 +44,7 @@ public class Experiment {
 		}
 	}
 
-	public void perform(boolean dryRun) {
+	public void perform(boolean dryRun, boolean verbose) {
 		ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
 		List<ScheduledFuture<?>> futures = new ArrayList<>();
 
@@ -61,6 +54,7 @@ public class Experiment {
 		// Run traffic generation
 		for (Traffic traffic : traffics) {
 			long time = System.currentTimeMillis();
+			double theoreticalRequestsPerSecond = Util.parseUnits(traffic.rate) / Util.parseUnits(traffic.size) * traffic.clients;
 
 			// Add new threads
 			executor.setCorePoolSize(traffic.clients);
@@ -68,30 +62,56 @@ public class Experiment {
 				futures.add(executor.scheduleWithFixedDelay(() -> {
 					int val = minIp + (int) ((maxIp - minIp) * traffic.localAddr.sample());
 					String localAddress = Util.int2ip(val);
-
-					// Add IP
-					exec(MessageFormat.format(ADD_IP, localAddress, intf), dryRun);
-
-					// Request data
-					String command = MessageFormat.format(GET_DATA, localAddress, traffic.rate, remoteAddr, traffic.size);
-					System.out.println(command);
-					int retval = exec(command, dryRun);
-					if (dryRun) {
-						try {
-							Thread.sleep((long) ((double) Util.parseUnits(traffic.size) / Util.parseUnits(traffic.rate)
-									* 1000));
-						} catch (InterruptedException e) {
+					
+					try {
+						// Add IP
+						String addIpCommand = MessageFormat.format(ADD_IP, localAddress, intf);
+						if (verbose) {
+							System.out.println(addIpCommand);
 						}
-					}
-					if (retval == 0) {
-						System.out.println(localAddress + "\tsuccess: " + retval);
-					} else {
-						System.out.println(localAddress + "\tfailure: " + retval);
+						exec(addIpCommand, dryRun);
+	
+						// Request data
+						String requestCommand = MessageFormat.format(GET_DATA, localAddress, traffic.rate, 0, 0, remoteAddr, traffic.size);
+						if (verbose) {
+							System.out.println(requestCommand);
+						}
+						long startTime = System.currentTimeMillis();
+						int retval = exec(requestCommand, dryRun);
+						if (dryRun) {
+							try {
+								Thread.sleep((long) ((double) Util.parseUnits(traffic.size) / Util.parseUnits(traffic.rate)
+										* 1000));
+							} catch (InterruptedException e) {
+							}
+						}
+						double duration = (System.currentTimeMillis() - startTime) / 1000.0;
+						if (retval == 0) {
+							System.out.println(localAddress + "\tSUCCESS retval: " + retval + "\tduration: " + duration);
+						} else {
+							System.out.println(localAddress + "\tFAILURE retval: " + retval + "\tduration: " + duration);
+						}
+					} finally {
+						// Delete IP
+						String delIpCommand = MessageFormat.format(DEL_IP, localAddress, intf);
+						if (verbose) {
+							System.out.println(delIpCommand);
+						}
+						exec(delIpCommand, dryRun);
 					}
 
-					// Delete IP
-					exec(MessageFormat.format(DEL_IP, localAddress, intf), dryRun);
+					// Randomize flow inter-arrival time
+					try {
+						Thread.sleep((long) (Math.random() / theoreticalRequestsPerSecond * 1000));
+					} catch (InterruptedException e) {
+					}
 				}, 0, 1, TimeUnit.NANOSECONDS));
+				
+				// Stagger requests
+				try {
+					Thread.sleep((long) (2 / theoreticalRequestsPerSecond * 1000));
+				} catch (InterruptedException e) {
+				}
 			}
 
 			// Sleep main thread until next traffic pattern
@@ -99,22 +119,35 @@ public class Experiment {
 			try {
 				Thread.sleep(Math.max(0, duration - (System.currentTimeMillis() - time)));
 			} catch (InterruptedException e) {
-				System.out.println("Interrupted while sleeping");
+				if (verbose) {
+					System.out.println("Interrupted while waiting for traffic pattern to complete");
+				}
 				e.printStackTrace();
 			} finally {
 				// Mark previous threads for cancellation
+				if (verbose) {
+					System.out.println("Cancelling futures");
+				}
 				futures.forEach(f -> f.cancel(false));
 				futures.clear();
 			}
 		}
 
-		// Teardown executor
+		// Shutdown executor
 		try {
+			if (verbose) {
+				System.out.println("Shutting down executor");
+			}
 			executor.shutdown();
 			executor.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS);
 		} catch (InterruptedException e) {
-			System.out.println("Interruption waiting for executor shutdown");
+			if (verbose) {
+				System.out.println("Interrupted while waiting for executor to shutdown");
+			}
 			e.printStackTrace();
+		}
+		if (verbose) {
+			System.out.println("Executor shutdown complete");
 		}
 	}
 
