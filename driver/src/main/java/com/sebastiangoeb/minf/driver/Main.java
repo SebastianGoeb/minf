@@ -5,6 +5,10 @@ import org.apache.commons.cli.*;
 import java.util.List;
 
 public class Main {
+
+	public static final int EXIT_CODE_INVALID_ARGS = 1;
+	public static final int EXIT_CODE_INTERRUPTED = 2;
+	public static final int EXIT_CODE_UNABLE_TO_LAUNCH_SUBPROCESS = 3;
 	
 	private static class Config {
 		private String experimentPath;
@@ -63,9 +67,11 @@ public class Main {
 	public static void main(String[] args) {
 		Config config = parseArgs(args);
 		if (config.getExperimentPath() == null) {
-			Experiment.fromStream(System.in).perform(config.isDryRun(), config.isVerbose());
+			System.out.println("Spec: stdin");
+			Experiment.fromStream(System.in, config.isDryRun(), config.isVerbose()).perform();
 		} else {
-			Experiment.fromFile(config.getExperimentPath()).perform(config.isDryRun(), config.isVerbose());
+			System.out.println("Spec: " + config.getExperimentPath());
+			Experiment.fromFile(config.getExperimentPath(), config.isDryRun(), config.isVerbose()).perform();
 		}
 	}
 }

@@ -6,6 +6,9 @@ import java.util.regex.Pattern;
 
 class Util {
 
+    static final long TO_MILLIS = 1000;
+    static final double TO_SECONDS = 0.001;
+
 	static double parseUnits(String withUnits) {
 		if (withUnits == null) {
 			return 0;
@@ -65,4 +68,9 @@ class Util {
 	static String int2ip(int ipVal) {
 		return MessageFormat.format("{0}.{1}.{2}.{3}", (ipVal >> 24) & 255, (ipVal >> 16) & 255, (ipVal >> 8) & 255, ipVal & 255);
 	}
+
+    static void stagger(Traffic traffic, double staggerAmount) throws InterruptedException {
+        double requestsPerSecond = parseUnits(traffic.getRate()) / parseUnits(traffic.getSize()) * traffic.getClients();
+        Thread.sleep((long) (staggerAmount / requestsPerSecond * TO_MILLIS));
+    }
 }
