@@ -1,12 +1,10 @@
 {
   "intf": "eth1",
-  "remoteAddr": "10.5.1.12",
+  "remoteAddress": "10.5.1.12",
   "localSubnet": "10.0.0.0/8",
-  "traffics": [{
-    "localAddr": "Normal(0.1, 0.0025)",
-    "rate": "1k",
-    "size": "1k",
-    "clients": 1,
-    "duration": 120
-  }]
+  "clients": 10,
+  "rate": "1k",
+  "size": "1k",
+  "localAddress": "Normal(0.1, 0.0025)",
+  "duration": 120
 }
