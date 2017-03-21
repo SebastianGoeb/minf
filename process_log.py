@@ -53,6 +53,8 @@ for rawDatum in rawData:
     numRules = rawDatum['numRules']
     serverByteCounts = extractServerByteCounts(rawDatum)
     serverRates = calculateServerRates(serverByteCounts, data[-1]['serverByteCounts'] if data else None, timestamp - data[-1]['timestamp'] if data else None)
+    if not serverRates:
+        continue
     loadImbalance = calculateLoadImbalance(serverRates)
 
     # Package and append processed datum
