@@ -24,7 +24,7 @@ def extractServerByteCounts(datum):
 def calculateServerRates(serverByteCounts, prevServerByteCounts=None, interval=None):
     if not prevServerByteCounts or not interval:
         return {ip: float(0) for ip, byteCount in serverByteCounts.iteritems()}
-    return {ip: float(byteCount - prevServerByteCounts[ip]) / (interval / 1000) for ip, byteCount in serverByteCounts.iteritems()}
+    return {ip: float(byteCount - prevServerByteCounts[ip]) / (interval / 1000.0) for ip, byteCount in serverByteCounts.iteritems()}
 
 def calculateLoadImbalance(serverRates):
     rates = serverRates.values()
