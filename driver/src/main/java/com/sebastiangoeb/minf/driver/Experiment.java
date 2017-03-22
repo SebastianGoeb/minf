@@ -27,6 +27,7 @@ class Experiment {
 					.registerTypeAdapter(Distribution.class, new DistributionDeserializer())
 					.create();
 			Traffic traffic = gson.fromJson(new InputStreamReader(inputStream), Traffic.class);
+			System.out.println(traffic.toString());
 			return new Experiment(traffic, dryRun, verbose);
 		} catch (JsonSyntaxException | JsonIOException e) {
 			e.printStackTrace();

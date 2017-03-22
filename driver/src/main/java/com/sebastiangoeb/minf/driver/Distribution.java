@@ -13,7 +13,8 @@ import java.util.regex.Pattern;
 
 class Distribution {
 	private static Pattern termPattern = Pattern.compile("(\\w+)\\((.*)\\)");
-	
+
+	private String sourceString;
 	private List<RealDistribution> distributions;
 
 	private static RealDistribution getRealDistribution(String type, List<Double> args) {
@@ -37,7 +38,9 @@ class Distribution {
 		}
 	}
 
-	private Distribution(List<RealDistribution> distributions) {
+	private Distribution(String sourceString,
+			List<RealDistribution> distributions) {
+		this.sourceString = sourceString;
 		this.distributions = distributions;
 	}
 
@@ -58,7 +61,7 @@ class Distribution {
 			}
 		}
 
-		return new Distribution(dists);
+		return new Distribution(expr, dists);
 	}
 
 	double sample() {
@@ -68,5 +71,10 @@ class Distribution {
 			sample = dist.sample();
 		}
 		return sample;
+	}
+
+	@Override
+	public String toString() {
+		return sourceString;
 	}
 }

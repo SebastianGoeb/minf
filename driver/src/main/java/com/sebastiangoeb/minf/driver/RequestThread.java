@@ -6,6 +6,7 @@ import java.text.MessageFormat;
 class RequestThread extends Thread {
 
     private Experiment experiment;
+    private long startTimestamp;
 
     RequestThread(Experiment experiment) {
         super();
@@ -15,7 +16,8 @@ class RequestThread extends Thread {
     @Override
     public void run() {
         Traffic traffic = experiment.getTraffic();
-        long endTimestamp = System.currentTimeMillis() + traffic.getDuration() * Util.TO_MILLIS;
+        startTimestamp = System.currentTimeMillis();
+        long endTimestamp = startTimestamp + traffic.getDuration() * Util.TO_MILLIS;
 
         while (System.currentTimeMillis() < endTimestamp && !Thread.interrupted()) {
             String localAddress = sampleLocalAddress();
@@ -37,14 +39,17 @@ class RequestThread extends Thread {
         String command = MessageFormat.format(commandFormat,
                 localAddress, traffic.getRate(), traffic.getRemoteAddress(), traffic.getSize());
         try {
-            long startTime = System.currentTimeMillis();
+            long requestStartTimestamp = System.currentTimeMillis();
             int retval = exec(command, experiment.isDryrun());
             if (experiment.isDryrun()) {
                 retval = fakeRequestDuration(traffic);
             }
-            double duration = (System.currentTimeMillis() - startTime) * Util.TO_SECONDS;
-            System.out.println(String.format("%-16s %s (exit code: %-3d) duration: %.2f",
-                    localAddress, retval == 0 ? "SUCCESS" : "FAILURE", retval, duration));
+            long requestEndTime = (long) ((System.currentTimeMillis() - startTimestamp) * Util.TO_SECONDS);
+            double requestDuration = (System.currentTimeMillis() - requestStartTimestamp) * Util.TO_SECONDS;
+            String messageFormat = "%" + String.valueOf(traffic.getDuration()).length()
+                    + "ds:\t%-16s %s (exit code: %-3d) duration: %.2f";
+            System.out.println(String.format(messageFormat,
+                    requestEndTime, localAddress, retval == 0 ? "SUCCESS" : "FAILURE", retval, requestDuration));
         } catch (IOException e) {
             Thread.currentThread().interrupt();
         }

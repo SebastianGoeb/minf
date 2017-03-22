@@ -31,35 +31,42 @@ class Traffic {
         this.duration = duration;
     }
 
-    public String getIntf() {
+    String getIntf() {
         return intf;
     }
 
-    public String getRemoteAddress() {
+    String getRemoteAddress() {
         return remoteAddress;
     }
 
-    public String getLocalSubnet() {
+    String getLocalSubnet() {
         return localSubnet;
     }
 
-    public int getClients() {
+    int getClients() {
         return clients;
     }
 
-    public String getRate() {
+    String getRate() {
         return rate;
     }
 
-    public String getSize() {
+    String getSize() {
         return size;
     }
 
-    public Distribution getLocalAddressDistribution() {
+    Distribution getLocalAddressDistribution() {
         return localAddressDistribution;
     }
 
-    public int getDuration() {
+    int getDuration() {
         return duration;
+    }
+
+    @Override
+    public String toString() {
+        return "Clients:  " + clients
+                + "\nDist:     " + localAddressDistribution
+                + "\nDuration: " + duration + " s";
     }
 }

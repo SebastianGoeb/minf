@@ -67,10 +67,8 @@ public class Main {
 	public static void main(String[] args) {
 		Config config = parseArgs(args);
 		if (config.getExperimentPath() == null) {
-			System.out.println("Spec: stdin");
 			Experiment.fromStream(System.in, config.isDryRun(), config.isVerbose()).perform();
 		} else {
-			System.out.println("Spec: " + config.getExperimentPath());
 			Experiment.fromFile(config.getExperimentPath(), config.isDryRun(), config.isVerbose()).perform();
 		}
 	}
