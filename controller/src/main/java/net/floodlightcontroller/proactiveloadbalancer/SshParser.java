@@ -15,22 +15,15 @@ import static java.util.Collections.emptyList;
 
 class SshParser {
     private static final Logger LOG = LoggerFactory.getLogger(SshParser.class);
-    private static final String HEADER_START = "OFPST_FLOW";
 
     static List<Flow> parseResult(String result) {
         try {
             List<Flow> flows = new ArrayList<>();
             String[] lines = result.trim().split("\n");
-            // Split line into properties, skipping first line (OFPST_FLOW reply...)
-            boolean hasHeaderBeenEncountered = false;
             for (String line : lines) {
-                if (!hasHeaderBeenEncountered) {
-                    if (line.startsWith(HEADER_START)) {
-                        hasHeaderBeenEncountered = true;
-                    }
-                    continue;
+                if (line.matches("^\\s*cookie.*")) {
+                    flows.add(parseLine(line));
                 }
-                flows.add(parseLine(line));
             }
             return flows;
         } catch (Exception e) {
