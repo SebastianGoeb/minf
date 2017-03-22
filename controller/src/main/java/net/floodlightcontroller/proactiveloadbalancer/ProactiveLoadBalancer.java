@@ -127,7 +127,6 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
 
     private void handleClientConnection(IPv4Address client) {
         if (isClientUnknown(client)) {
-            LOG.info("Packet in. Handle connection: {}", client);
             logicalLoadBalancingFlows.get(connection).add(new LoadBalancingFlow(client.withMaskOfLength(32), null));
             updateConnectionLoadBalancing();
             writeLoadBalancingFlows(getActiveManagedSwitches(), singletonList(connection));
@@ -295,6 +294,7 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
             // Initialize load balancing flows
             physicalLoadBalancingFlows = new HashMap<>();
             logicalLoadBalancingFlows = new HashMap<>();
+            transitions = emptyList();
             if (config.getStrategyRanges().containsKey(prefix)) {
                 logicalLoadBalancingFlows.put(prefix, singletonList(
                         new LoadBalancingFlow(IPUtil.base(config.getStrategyRanges().get(prefix)), null)));
@@ -305,21 +305,33 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
 
             // Start snapshot cycle
             snapshotFuture = threadPoolService.getScheduledExecutor().scheduleAtFixedRate(() -> {
-                Snapshot snapshot = getSnapshot();
-                snapshotHistory.addFirst(snapshot);
-                snapshotHistory.removeIf(snap -> snapshot.getTimestamp() - snap.getTimestamp() > TimeUnit.SECONDS.toMillis(config.getMeasurementInterval()));
-                serverRates = calculateRatesAsMovingAverage(config.getServerMeasurementInterval() * 1000);
-                LOG.info("snapshot: {}", snapshot.toJson());
+                try {
+                    Snapshot snapshot = getSnapshot();
+                    snapshotHistory.addFirst(snapshot);
+                    snapshotHistory.removeIf(snap -> snapshot.getTimestamp() - snap.getTimestamp() > TimeUnit.SECONDS.toMillis(
+
+                            config.getMeasurementInterval()));
+                    serverRates = calculateRatesAsMovingAverage(config.getServerMeasurementInterval() * 1000);
+                    LOG.info("snapshot: {}", snapshot.toJson());
+                } catch (Exception e) {
+                    // Prevent any exceptions from bubbling up and killing our measurements
+                    e.printStackTrace();
+                }
             }, 0, SNAPSHOT_INTERVAL, TimeUnit.SECONDS);
 
             // Start client prefix measurement cycle
             if (config.getStrategyRanges().containsKey(prefix)) {
                 clientMeasurementFuture = threadPoolService.getScheduledExecutor().scheduleAtFixedRate(() -> {
-                    updateClientMeasurements();
-                    writeClientMeasurementFlows(getActiveManagedSwitches());
-                    if (config.getStrategyRanges().keySet().contains(prefix)) {
-                        updatePrefixLoadBalancing();
-                        writeLoadBalancingFlows(getActiveManagedSwitches(), singletonList(prefix));
+                    try {
+                        updateClientMeasurements();
+                        writeClientMeasurementFlows(getActiveManagedSwitches());
+                        if (config.getStrategyRanges().keySet().contains(prefix)) {
+                            updatePrefixLoadBalancing();
+                            writeLoadBalancingFlows(getActiveManagedSwitches(), singletonList(prefix));
+                        }
+                    } catch (Exception e) {
+                        // Prevent any exceptions from bubbling up and killing our measurements
+                        e.printStackTrace();
                     }
                 }, config.getMeasurementInterval(), config.getMeasurementInterval(), TimeUnit.SECONDS);
             }
@@ -356,7 +368,7 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
         }
 
         // Calculate interval in seconds
-        double actualIntervalSeconds = (oldestTimestamp - newestTimestamp) / 1000.0;
+        double actualIntervalSeconds = (newestTimestamp - oldestTimestamp) / 1000.0;
 
         // Add newest measurements
         for (Measurement measurement : newestSnapshot.getServerMeasurements()) {
@@ -479,13 +491,14 @@ public class ProactiveLoadBalancer implements IFloodlightModule, IOFMessageListe
             if (!config.getTopology().getServers().isEmpty()) {
                 int numberOfServers = config.getTopology().getServers().size();
                 int bits = 32 - Integer.numberOfLeadingZeros(numberOfServers - 1);
-                int nextPowerOfTwo = 1 << bits;
+                bits += 2;
+                int powerOfTwo = 1 << bits;
                 // FIXME don't use base prefix, it might be larger than client range
                 IPv4AddressWithMask base = IPUtil.base(config.getClientRange());
                 int baseAddr = base.getValue().getInt();
                 int maskLength = base.getMask().asCidrMaskLength() + bits;
                 int increment = 1 << (32 - maskLength);
-                for (int i = 0; i < nextPowerOfTwo; i++) {
+                for (int i = 0; i < powerOfTwo; i++) {
                     IPv4AddressWithMask prefix = IPv4Address.of(baseAddr + i * increment).withMaskOfLength(maskLength);
                     doubleMeasurements.add(new WeightedPrefix(prefix, 1));
                 }
