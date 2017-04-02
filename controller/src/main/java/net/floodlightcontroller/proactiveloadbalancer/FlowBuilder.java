@@ -7,6 +7,8 @@ import net.floodlightcontroller.proactiveloadbalancer.util.PrefixTrie.Node;
 import org.projectfloodlight.openflow.types.DatapathId;
 import org.projectfloodlight.openflow.types.IPv4Address;
 import org.projectfloodlight.openflow.types.IPv4AddressWithMask;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.*;
 
@@ -16,6 +18,8 @@ import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toMap;
 
 class FlowBuilder {
+
+    private static final Logger LOG = LoggerFactory.getLogger(FlowBuilder.class);
 
     static List<LoadBalancingFlow> buildConnectionFlows(List<LoadBalancingFlow> flows, Map<IPv4Address, Double> rates, Map<IPv4Address, Double> weights) {
         if (flows == null) {
@@ -97,38 +101,39 @@ class FlowBuilder {
         return forwardingFlows;
     }
 
-    static Map<DatapathId, List<LoadBalancingFlow>> buildPhysicalFlows(Config config, List<LoadBalancingFlow> logicalFlows, Map<DatapathId, IPv4Address> vips) {
-        List<DatapathId> toposortedDpids = toposortSwitches(config.getTopology());
+    static Map<DatapathId, List<LoadBalancingFlow>> buildPhysicalFlows(Topology topology, Map<DatapathId, IPv4Address> vips, List<LoadBalancingFlow> logicalFlows) {
+        List<DatapathId> toposortedSwitches = toposortSwitches(topology);
 
-        // Group flows by dip
-        // TODO do this more cleanly, or even per switch?
-        Map<IPv4Address, List<LoadBalancingFlow>> flowsByDip = new HashMap<>();
-        for (IPv4Address dip : config.getTopology().getServers()) {
-            flowsByDip.put(dip, logicalFlows.stream().filter(flow -> flow.getDip().equals(dip)).collect(toList()));
+        // Group flows by server
+        Map<IPv4Address, List<LoadBalancingFlow>> logicalFlowsGroupedByServer = new HashMap<>();
+        for (IPv4Address dip : topology.getServers()) {
+            logicalFlowsGroupedByServer.put(dip, logicalFlows.stream().filter(flow -> flow.getDip().equals(dip)).collect(toList()));
         }
 
-        // Calculate downstream flows for load balancers
-        Map<DatapathId, List<LoadBalancingFlow>> flowsByDpid = new HashMap<>();
-        for (DatapathId dpid : toposortedDpids) {
-            List<LoadBalancingFlow> flows = new ArrayList<>();
-            // Add switch -> server flows
-            Map<IPv4Address, Integer> servers = config.getTopology().getDownlinksToServers().get(dpid);
-            for (IPv4Address dip : servers.keySet()) {
-                flows.addAll(flowsByDip.get(dip));
+        // Calculate downstream flows per switch in dependency order
+        Map<DatapathId, List<LoadBalancingFlow>> physicalFlowsGroupedBySwitch = new HashMap<>();
+        for (DatapathId switchId : toposortedSwitches) {
+            List<LoadBalancingFlow> flowsFromSwitch = new ArrayList<>();
+            // Add switch -> downstream server flows without modification
+            Map<IPv4Address, Integer> downstreamServersAndPorts = topology.getDownlinksToServers().get(switchId);
+            for (IPv4Address server : downstreamServersAndPorts.keySet()) {
+                List<LoadBalancingFlow> logicalFlowsToServer = logicalFlowsGroupedByServer.get(server);
+                flowsFromSwitch.addAll(logicalFlowsToServer);
             }
-            // Add switch -> switch flows
-            Map<DatapathId, Integer> downstreamSwitches = config.getTopology().getDownlinksToSwitches().get(dpid);
-            for (DatapathId downstreamDpid : downstreamSwitches.keySet()) {
-                IPv4Address downstreamVip = vips.get(downstreamDpid);
-                List<LoadBalancingFlow> downstreamFlows = flowsByDpid.get(downstreamDpid).stream()
-                        .map(flow -> new LoadBalancingFlow(flow.getPrefix(), downstreamVip))
+            // Add switch -> downstream switch flows, replacing destination IPs with downstream switch VIPs
+            Map<DatapathId, Integer> downstreamSwitchesAndPorts = topology.getDownlinksToSwitches().get(switchId);
+            for (DatapathId downstreamSwitch : downstreamSwitchesAndPorts.keySet()) {
+                IPv4Address downstreamSwitchVip = vips.get(downstreamSwitch);
+                List<LoadBalancingFlow> physicalFlowsToSwitch = physicalFlowsGroupedBySwitch.get(downstreamSwitch).stream()
+                        .map(flow -> new LoadBalancingFlow(flow.getPrefix(), downstreamSwitchVip))
                         .collect(toList());
-                flows.addAll(downstreamFlows);
+                flowsFromSwitch.addAll(physicalFlowsToSwitch);
             }
-            flowsByDpid.put(dpid, mergeContiguousFlows(flows));
+            // Merge flows if adjacent and same destination
+            physicalFlowsGroupedBySwitch.put(switchId, mergeContiguousFlows(flowsFromSwitch));
         }
 
-        return flowsByDpid;
+        return physicalFlowsGroupedBySwitch;
     }
 
     // Helpers

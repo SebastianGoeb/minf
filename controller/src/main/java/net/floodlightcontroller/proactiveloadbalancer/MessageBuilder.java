@@ -6,6 +6,7 @@ import net.floodlightcontroller.proactiveloadbalancer.domain.Transition;
 import org.projectfloodlight.openflow.protocol.OFFactory;
 import org.projectfloodlight.openflow.protocol.OFFlowAdd.Builder;
 import org.projectfloodlight.openflow.protocol.OFFlowMod;
+import org.projectfloodlight.openflow.protocol.OFFlowModFlags;
 import org.projectfloodlight.openflow.protocol.OFFlowStatsRequest;
 import org.projectfloodlight.openflow.protocol.action.OFAction;
 import org.projectfloodlight.openflow.protocol.action.OFActions;
@@ -20,6 +21,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.*;
 
+import static java.util.Collections.singleton;
 import static java.util.Collections.singletonList;
 
 class MessageBuilder {
@@ -40,14 +42,15 @@ class MessageBuilder {
     private static final short NUM_TABLES = 5;
 
     // Timeout
-    private static final int CONNECTION_IDLE_TIMEOUT = 60;
+    // TODO reset to 60
+    private static final int CONNECTION_IDLE_TIMEOUT = 10;
 
     // TODO get at runtime?
-    private static final MacAddress SWITCH_MAC = MacAddress.of("00:00:0a:05:01:0c");
+    static final MacAddress SWITCH_MAC = MacAddress.of("00:00:0a:05:01:0c");
     // TODO get at runtime?
-    private static final Map<IPv4Address, MacAddress> SERVER_MACS = new HashMap<>();
+    static final Map<IPv4Address, MacAddress> SERVER_MACS = new HashMap<>();
     // TODO get at runtime?
-    private static final Map<IPv4Address, MacAddress> DRIVER_MACS = new HashMap<>();
+    static final Map<IPv4Address, MacAddress> DRIVER_MACS = new HashMap<>();
 
 
     static {
@@ -286,6 +289,7 @@ class MessageBuilder {
 
             if (timeout) {
                 builder.setIdleTimeout(CONNECTION_IDLE_TIMEOUT);
+                builder.setFlags(singleton(OFFlowModFlags.SEND_FLOW_REM));
             }
 
             flowMods.add(builder.build());

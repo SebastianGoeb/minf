@@ -38,6 +38,12 @@ class GreedyPrefixAssigner {
             }
         }
 
+        // Add any remaining 0 measurements due to numeric error to last server
+        Server lastServer = scaledServers.get(scaledServers.size() - 1);
+        for (WeightedPrefix scaledMeasurement : scaledMeasurements) {
+            flows.add(new LoadBalancingFlow(scaledMeasurement.getPrefix(), lastServer.getDip()));
+        }
+
         return flows;
     }
 

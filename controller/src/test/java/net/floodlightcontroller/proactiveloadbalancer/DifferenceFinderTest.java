@@ -13,7 +13,6 @@ import static java.util.Arrays.asList;
 import static java.util.Collections.emptyList;
 import static java.util.Collections.singletonList;
 import static org.hamcrest.Matchers.equalTo;
-import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 
 public class DifferenceFinderTest extends FloodlightTestCase {
@@ -23,9 +22,7 @@ public class DifferenceFinderTest extends FloodlightTestCase {
     public void prefixesAreContiguous_whenEmpty_returnsTrue() {
         List<LoadBalancingFlow> flows = emptyList();
 
-        boolean result = DifferenceFinder.prefixesAreContiguous(flows);
-
-        assertThat(result, is(true));
+        DifferenceFinder.requirePrefixesAreContiguous(flows);
     }
 
     @Test
@@ -33,9 +30,7 @@ public class DifferenceFinderTest extends FloodlightTestCase {
         List<LoadBalancingFlow> flows = singletonList(
                 new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/8"), IPv4Address.of("10.0.0.1")));
 
-        boolean result = DifferenceFinder.prefixesAreContiguous(flows);
-
-        assertThat(result, is(true));
+        DifferenceFinder.requirePrefixesAreContiguous(flows);
     }
 
     @Test
@@ -44,20 +39,16 @@ public class DifferenceFinderTest extends FloodlightTestCase {
                 new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/8"), IPv4Address.of("10.0.0.1")),
                 new LoadBalancingFlow(IPv4AddressWithMask.of("11.0.0.0/8"), IPv4Address.of("10.0.0.1")));
 
-        boolean result = DifferenceFinder.prefixesAreContiguous(flows);
-
-        assertThat(result, is(true));
+        DifferenceFinder.requirePrefixesAreContiguous(flows);
     }
 
-    @Test
+    @Test(expected = IllegalArgumentException.class)
     public void prefixesAreContiguous_whenNotContiguous_returnsFalse() {
         List<LoadBalancingFlow> flows = asList(
                 new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/8"), IPv4Address.of("10.0.0.1")),
                 new LoadBalancingFlow(IPv4AddressWithMask.of("12.0.0.0/8"), IPv4Address.of("10.0.0.1")));
 
-        boolean result = DifferenceFinder.prefixesAreContiguous(flows);
-
-        assertThat(result, is(false));
+        DifferenceFinder.requirePrefixesAreContiguous(flows);
     }
 
     // Tests for same-range prefixes
@@ -66,31 +57,25 @@ public class DifferenceFinderTest extends FloodlightTestCase {
         List<LoadBalancingFlow> flowsOld = emptyList();
         List<LoadBalancingFlow> flowsNew = emptyList();
 
-        boolean result = DifferenceFinder.prefixesCoverSameRange(flowsOld, flowsNew);
-
-        assertThat(result, is(true));
+        DifferenceFinder.requirePrefixesCoverSameRange(flowsOld, flowsNew);
     }
 
-    @Test
+    @Test(expected = IllegalArgumentException.class)
     public void prefixesCoverSameRange_whenOnlyOldEmpty_returnsFalse() {
         List<LoadBalancingFlow> flowsOld = emptyList();
         List<LoadBalancingFlow> flowsNew = singletonList(
                 new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/8"), IPv4Address.of("10.0.0.1")));
 
-        boolean result = DifferenceFinder.prefixesCoverSameRange(flowsOld, flowsNew);
-
-        assertThat(result, is(false));
+        DifferenceFinder.requirePrefixesCoverSameRange(flowsOld, flowsNew);
     }
 
-    @Test
+    @Test(expected = IllegalArgumentException.class)
     public void prefixesCoverSameRange_whenOnlyNewEmpty_returnsFalse() {
         List<LoadBalancingFlow> flowsOld = singletonList(
                 new LoadBalancingFlow(IPv4AddressWithMask.of("10.0.0.0/8"), IPv4Address.of("10.0.0.1")));
         List<LoadBalancingFlow> flowsNew = emptyList();
 
-        boolean result = DifferenceFinder.prefixesCoverSameRange(flowsOld, flowsNew);
-
-        assertThat(result, is(false));
+        DifferenceFinder.requirePrefixesCoverSameRange(flowsOld, flowsNew);
     }
 
     // Tests for transitions

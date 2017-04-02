@@ -15,6 +15,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
+import static java.util.stream.Collectors.toList;
+
 public class Config {
 
     @JsonProperty
@@ -28,7 +30,7 @@ public class Config {
     private IPv4AddressWithMask dVipRange;
 
     @JsonProperty
-    private Map<Strategy, IPv4AddressRange> strategyRanges;
+    private Map<IPv4AddressRange, Strategy> strategyRanges;
 
     // Derived
     private IPv4AddressRange clientRange;
@@ -84,13 +86,13 @@ public class Config {
         return this;
     }
 
-    public Map<Strategy, IPv4AddressRange> getStrategyRanges() {
+    public Map<IPv4AddressRange, Strategy> getStrategyRanges() {
         return strategyRanges;
     }
 
-    public Config setStrategyRanges(Map<Strategy, IPv4AddressRange> strategyRanges) {
+    public Config setStrategyRanges(Map<IPv4AddressRange, Strategy> strategyRanges) {
         this.strategyRanges = strategyRanges;
-        this.clientRange = strategyRanges.values().stream()
+        this.clientRange = strategyRanges.keySet().stream()
                 .reduce((r0, r1) -> IPv4AddressRange.of(
                         r0.getMin().compareTo(r1.getMin()) < 0 ? r0.getMin() : r1.getMin(),
                         r0.getMax().compareTo(r1.getMax()) > 0 ? r0.getMax() : r1.getMax()
@@ -182,6 +184,25 @@ public class Config {
     public Config setServerMeasurementInterval(long serverMeasurementInterval) {
         this.serverMeasurementInterval = serverMeasurementInterval;
         return this;
+    }
+
+    public boolean hasPrefixBasedStrategyRange() {
+        return strategyRanges.values().stream()
+                .anyMatch(Strategy::isPrefixBased);
+    }
+
+    public List<IPv4AddressRange> getPrefixBasedStrategyRanges() {
+        return strategyRanges.entrySet().stream()
+                .filter(e -> e.getValue().isPrefixBased())
+                .map(e -> e.getKey())
+                .collect(toList());
+    }
+
+    public List<IPv4AddressRange> getConnectionBasedStrategyRanges() {
+        return strategyRanges.entrySet().stream()
+                .filter(e -> !e.getValue().isPrefixBased())
+                .map(e -> e.getKey())
+                .collect(toList());
     }
 
     @Override

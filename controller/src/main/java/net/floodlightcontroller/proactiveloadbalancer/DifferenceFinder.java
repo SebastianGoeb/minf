@@ -6,6 +6,7 @@ import net.floodlightcontroller.proactiveloadbalancer.domain.Transition;
 import org.projectfloodlight.openflow.types.IPv4Address;
 import org.projectfloodlight.openflow.types.IPv4AddressWithMask;
 
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -14,9 +15,9 @@ import java.util.Objects;
 import static java.util.Comparator.comparing;
 
 class DifferenceFinder {
-    static boolean prefixesAreContiguous(List<LoadBalancingFlow> sorted) {
+    static void requirePrefixesAreContiguous(List<LoadBalancingFlow> sorted) {
         if (sorted.size() <= 1) {
-            return true;
+            return;
         }
         for (int i = 0; i < sorted.size() - 1; i++){
             IPv4AddressWithMask prev = sorted.get(i).getPrefix();
@@ -24,37 +25,37 @@ class DifferenceFinder {
             int maxPrev = prev.getValue().or(prev.getMask().not()).getInt();
             int minNext = next.getValue().getInt();
             if (minNext - maxPrev != 1) {
-                return false;
+                throw new IllegalArgumentException(MessageFormat.format(
+                        "Prefixes must be contiguous. maxPrev: {0}, minNext: {1}", maxPrev, minNext));
             }
         }
-        return true;
     }
 
-    static boolean prefixesCoverSameRange(List<LoadBalancingFlow> sortedOld, List<LoadBalancingFlow> sortedNew) {
+    static void requirePrefixesCoverSameRange(List<LoadBalancingFlow> sortedOld, List<LoadBalancingFlow> sortedNew) {
         if (sortedOld.isEmpty() && sortedNew.isEmpty()) {
-            return true;
+            return;
         } else if (sortedOld.isEmpty() || sortedNew.isEmpty()) {
-            return false;
+            throw new IllegalArgumentException("Prefixes must cover same range but old or new was empty.");
         }
 
         IPv4Address minOld = sortedOld.get(0).getPrefix().getValue();
         IPv4Address maxOld = sortedOld.get(sortedOld.size() - 1).getPrefix().getSubnetBroadcastAddress();
         IPv4Address minNew = sortedNew.get(0).getPrefix().getValue();
         IPv4Address maxNew = sortedNew.get(sortedNew.size() - 1).getPrefix().getSubnetBroadcastAddress();
-        return minOld.equals(minNew) && maxOld.equals(maxNew);
+
+        if (!(minOld.equals(minNew) && maxOld.equals(maxNew))) {
+            throw new IllegalArgumentException(MessageFormat.format(
+                    "Prefixes must cover same range. old: {0}-{1}, new: {2}-{3}", minOld, maxOld, minNew, maxNew));
+        }
     }
 
     static List<Transition> transitions(List<LoadBalancingFlow> flowsOld, List<LoadBalancingFlow> flowsNew) {
         List<LoadBalancingFlow> sortedOld = sortFlows(flowsOld);
         List<LoadBalancingFlow> sortedNew = sortFlows(flowsNew);
 
-        if (!prefixesAreContiguous(sortedOld) || !prefixesAreContiguous(sortedNew)) {
-            throw new IllegalArgumentException("Prefixes must be contiguous");
-        }
-
-        if (!prefixesCoverSameRange(sortedOld, sortedNew)) {
-            throw new IllegalArgumentException("Prefixes must cover same range");
-        }
+        requirePrefixesAreContiguous(sortedOld);
+        requirePrefixesAreContiguous(sortedNew);
+        requirePrefixesCoverSameRange(sortedOld, sortedNew);
 
         Iterator<LoadBalancingFlow> iterOld = sortedOld.iterator();
         Iterator<LoadBalancingFlow> iterNew = sortedNew.iterator();

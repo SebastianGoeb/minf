@@ -22,7 +22,7 @@ import static org.junit.Assert.assertThat;
 
 @SuppressWarnings("ConstantConditions")
 @RunWith(EasyMockRunner.class)
-public class SwitchCommunicatorTest extends FloodlightTestCase {
+public class ConcurrentlyTest extends FloodlightTestCase {
 
     @Mock
     private IOFSwitch mockSwitch;
@@ -38,9 +38,9 @@ public class SwitchCommunicatorTest extends FloodlightTestCase {
         List<IOFSwitch> switches = null;
         Function<IOFSwitch, ?> function = iofSwitch -> null;
 
-        Map<DatapathId, ?> result = SwitchCommunicator.concurrently(switches, function);
+        Map<IOFSwitch, ?> result = Concurrently.forEach(switches, function);
 
-        assertThat(result, is(SwitchCommunicator.defaultResult()));
+        assertThat(result, is(Concurrently.defaultResult()));
     }
 
     @Test
@@ -48,9 +48,9 @@ public class SwitchCommunicatorTest extends FloodlightTestCase {
         List<IOFSwitch> switches = emptyList();
         Function<IOFSwitch, ?> function = iofSwitch -> null;
 
-        Map<DatapathId, ?> result = SwitchCommunicator.concurrently(switches, function);
+        Map<IOFSwitch, ?> result = Concurrently.forEach(switches, function);
 
-        assertThat(result, is(SwitchCommunicator.defaultResult()));
+        assertThat(result, is(Concurrently.defaultResult()));
     }
 
     @Test
@@ -58,9 +58,9 @@ public class SwitchCommunicatorTest extends FloodlightTestCase {
         List<IOFSwitch> switches = emptyList();
         Function<IOFSwitch, ?> function = null;
 
-        Map<DatapathId, ?> result = SwitchCommunicator.concurrently(switches, function);
+        Map<IOFSwitch, ?> result = Concurrently.forEach(switches, function);
 
-        assertThat(result, is(SwitchCommunicator.defaultResult()));
+        assertThat(result, is(Concurrently.defaultResult()));
     }
 
     @Test
@@ -71,7 +71,7 @@ public class SwitchCommunicatorTest extends FloodlightTestCase {
         expect(function.apply(mockSwitch)).andReturn(null);
         replay(function);
 
-        SwitchCommunicator.concurrently(switches, function);
+        Concurrently.forEach(switches, function);
 
         verify(function);
     }
@@ -86,9 +86,9 @@ public class SwitchCommunicatorTest extends FloodlightTestCase {
         replay(mockSwitch);
         replay(function);
 
-        Map<DatapathId, String> result = SwitchCommunicator.concurrently(switches, function);
+        Map<IOFSwitch, String> result = Concurrently.forEach(switches, function);
 
-        assertThat(result, equalTo(singletonMap(DatapathId.of(1), "A")));
+        assertThat(result, equalTo(singletonMap(mockSwitch, "A")));
     }
 
     @Test
@@ -104,11 +104,11 @@ public class SwitchCommunicatorTest extends FloodlightTestCase {
         replay(mockSwitch2);
         replay(function);
 
-        Map<DatapathId, String> result = SwitchCommunicator.concurrently(switches, function);
+        Map<IOFSwitch, String> result = Concurrently.forEach(switches, function);
 
-        Map<DatapathId, String> expectedResult = new HashMap<>();
-        expectedResult.put(DatapathId.of(1), "A");
-        expectedResult.put(DatapathId.of(2), "B");
+        Map<IOFSwitch, String> expectedResult = new HashMap<>();
+        expectedResult.put(mockSwitch, "A");
+        expectedResult.put(mockSwitch2, "B");
         assertThat(result, equalTo(expectedResult));
     }
 }

@@ -26,7 +26,13 @@ public class IPv4AddressRange {
         this(null, null);
     }
 
-    private IPv4AddressRange(IPv4Address min, IPv4Address max) {
+    public IPv4AddressRange(String s) {
+        String[] parts = s.split("-");
+        this.min = IPv4Address.of(parts[0]);
+        this.max = IPv4Address.of(parts[1]);
+    }
+
+    public IPv4AddressRange(IPv4Address min, IPv4Address max) {
         this.min = min;
         this.max = max;
     }
@@ -75,5 +81,10 @@ public class IPv4AddressRange {
     @Override
     public int hashCode() {
         return Objects.hash(min, max);
+    }
+
+    @Override
+    public String toString() {
+        return String.format("%s-%s", min, max);
     }
 }
