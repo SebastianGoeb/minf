@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+
+java -jar floodlight/target/floodlight.jar -cf floodlight/src/main/resources/floodlightloadbalancer.properties | tee test.log

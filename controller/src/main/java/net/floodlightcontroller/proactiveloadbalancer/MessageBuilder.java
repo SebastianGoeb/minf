@@ -31,6 +31,7 @@ class MessageBuilder {
     private static final U64 MEASUREMENT_COOKIE = U64.of(100);
 
     // Priorities
+    private static final int MICROFLOW_PRIORITY = 400;
     private static final int TRANSITION_PRIORITY = 300;
     private static final int INGRESS_PRIORITY = 200;
     private static final int EGRESS_PRIORITY = 100;
@@ -43,7 +44,7 @@ class MessageBuilder {
 
     // Timeout
     // TODO reset to 60
-    private static final int CONNECTION_IDLE_TIMEOUT = 10;
+    private static final int CONNECTION_IDLE_TIMEOUT = 60;
 
     // TODO get at runtime?
     static final MacAddress SWITCH_MAC = MacAddress.of("00:00:0a:05:01:0c");
@@ -58,6 +59,7 @@ class MessageBuilder {
         SERVER_MACS.put(IPv4Address.of("10.0.0.2"), MacAddress.of("00:00:00:00:00:02"));
         SERVER_MACS.put(IPv4Address.of("10.0.0.3"), MacAddress.of("00:00:00:00:00:03"));
         SERVER_MACS.put(IPv4Address.of("10.0.0.4"), MacAddress.of("00:00:00:00:00:04"));
+        SERVER_MACS.put(IPv4Address.of("10.0.0.5"), MacAddress.of("00:00:00:00:00:05"));
 
         SERVER_MACS.put(IPv4Address.of("10.1.1.2"), MacAddress.of("9a:b0:ad:56:d9:34"));
         SERVER_MACS.put(IPv4Address.of("10.1.1.3"), MacAddress.of("ee:3d:17:22:dc:2d"));
@@ -241,7 +243,7 @@ class MessageBuilder {
 
     // Load Balancing
     static List<OFFlowMod> addLoadBalancingIngressFlows(DatapathId dpid, OFFactory factory, IPv4Address vip,
-            Iterable<LoadBalancingFlow> flows, U64 cookie, boolean timeout) {
+            Iterable<LoadBalancingFlow> flows, U64 cookie) {
         // Preconditions
         Objects.requireNonNull(dpid);
         Objects.requireNonNull(factory);
@@ -287,7 +289,66 @@ class MessageBuilder {
                     .setCookie(cookie)
                     .setInstructions(instructionList);
 
-            if (timeout) {
+            if (false) {
+                builder.setIdleTimeout(CONNECTION_IDLE_TIMEOUT);
+                builder.setFlags(singleton(OFFlowModFlags.SEND_FLOW_REM));
+            }
+
+            flowMods.add(builder.build());
+
+            // TODO Transitions?
+        }
+        return flowMods;
+    }
+
+    static List<OFFlowMod> addLoadBalancingMicroFlows(DatapathId dpid, OFFactory factory, IPv4Address vip,
+            Iterable<LoadBalancingFlow> flows, U64 cookie) {
+        // Preconditions
+        Objects.requireNonNull(dpid);
+        Objects.requireNonNull(factory);
+        Objects.requireNonNull(vip);
+        Objects.requireNonNull(flows);
+        Objects.requireNonNull(cookie);
+
+        // OpenFlow
+        OFActions actions = factory.actions();
+        OFOxms oxms = factory.oxms();
+        OFInstructions instructions = factory.instructions();
+
+        List<OFFlowMod> flowMods = new LinkedList<>();
+        for (LoadBalancingFlow flow : flows) {
+            IPv4Address dip = flow.getDip();
+            IPv4AddressWithMask prefix = flow.getPrefix();
+
+            // Match
+            Match match = factory
+                    .buildMatch()
+                    .setExact(MatchField.ETH_TYPE, EthType.IPv4)
+                    .setExact(MatchField.IPV4_DST, vip)
+                    .setMasked(MatchField.IPV4_SRC, prefix)
+                    .build();
+
+            // Actions
+            MacAddress dstMac = SERVER_MACS.containsKey(dip) ? SERVER_MACS.get(dip) : MacAddress.of(dip.getInt());
+            List<OFAction> actionList = Arrays.asList(
+                    actions.setField(oxms.ethSrc(SWITCH_MAC)),
+                    actions.setField(oxms.ethDst(dstMac)),
+                    actions.setField(oxms.ipv4Dst(dip)));
+
+            // Instructions
+            List<OFInstruction> instructionList = Arrays.asList(
+                    instructions.applyActions(actionList),
+                    instructions.gotoTable(getForwardingTableId(dpid)));
+
+            Builder builder = factory
+                    .buildFlowAdd()
+                    .setTableId(getLoadBalancingTableId(dpid))
+                    .setPriority(MICROFLOW_PRIORITY + prefix.getMask().asCidrMaskLength())
+                    .setMatch(match)
+                    .setCookie(cookie)
+                    .setInstructions(instructionList);
+
+            if (true) {
                 builder.setIdleTimeout(CONNECTION_IDLE_TIMEOUT);
                 builder.setFlags(singleton(OFFlowModFlags.SEND_FLOW_REM));
             }

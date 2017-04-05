@@ -5,15 +5,19 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonIOException;
 import com.google.gson.JsonSyntaxException;
 
-import java.io.*;
-import java.util.ArrayList;
-import java.util.List;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.util.*;
 
 class Experiment {
 
 	private Traffic traffic;
 	private boolean dryrun;
 	private boolean verbose;
+	private long startTimestamp;
+	private Map<String, Integer> activeLocalAddresses;
 
 	private Experiment(Traffic traffic, boolean dryrun, boolean verbose) {
 		this.traffic = traffic;
@@ -24,7 +28,7 @@ class Experiment {
 	static Experiment fromStream(InputStream inputStream, boolean dryRun, boolean verbose) {
 		try {
 			Gson gson = new GsonBuilder()
-					.registerTypeAdapter(Distribution.class, new DistributionDeserializer())
+					.registerTypeAdapter(CompositeDistribution.class, new CompositeDistributionDeserializer())
 					.create();
 			Traffic traffic = gson.fromJson(new InputStreamReader(inputStream), Traffic.class);
 			System.out.println(traffic.toString());
@@ -47,6 +51,8 @@ class Experiment {
 	}
 
 	void perform() {
+		startTimestamp = System.currentTimeMillis();
+		activeLocalAddresses = new HashMap<>();
 		List<RequestThread> threads = createThreads();
 		registerShutdownHook(threads);
 		startThreads(threads);
@@ -62,14 +68,10 @@ class Experiment {
 
 	private void registerShutdownHook(List<RequestThread> threads) {
 		Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-			if (verbose) {
-				System.out.println("Waiting for client threads to shut down");
-			}
+			System.out.println("Waiting for client threads to shut down");
 			interruptThreads(threads);
 			waitForThreads(threads);
-			if (verbose) {
-				System.out.println("Client threads shut down successfully");
-			}
+			System.out.println("Client threads shut down successfully");
 		}));
 	}
 
@@ -86,8 +88,9 @@ class Experiment {
 		}
 	}
 
-	private void interruptThreads(List<? extends Thread> threads) {
-		for (Thread thread : threads) {
+	private void interruptThreads(List<RequestThread> threads) {
+		for (RequestThread thread : threads) {
+			thread.cancel();
 			thread.interrupt();
 		}
 	}
@@ -114,5 +117,13 @@ class Experiment {
 
 	boolean isVerbose() {
 		return verbose;
+	}
+
+	long getStartTimestamp() {
+		return startTimestamp;
+	}
+
+	Map<String, Integer> getActiveLocalAddresses() {
+		return activeLocalAddresses;
 	}
 }

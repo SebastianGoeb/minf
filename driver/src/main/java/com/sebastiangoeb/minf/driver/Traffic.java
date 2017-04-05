@@ -11,16 +11,40 @@ class Traffic {
     private String rate;
     private String size;
     @SerializedName("localAddress")
-    private Distribution localAddressDistribution;
+    private CompositeDistribution localAddressDistribution;
     private int duration;
+    private int cycle;
 
+    @SuppressWarnings("unused")
     public Traffic(String intf,
             String remoteAddress,
             String localSubnet,
             int clients,
             String rate,
             String size,
-            Distribution localAddressDistribution, int duration) {
+            CompositeDistribution localAddressDistribution,
+            int duration) {
+        this(intf,
+                remoteAddress,
+                localSubnet,
+                clients,
+                rate,
+                size,
+                localAddressDistribution,
+                duration,
+                0);
+    }
+
+    @SuppressWarnings("WeakerAccess")
+    public Traffic(String intf,
+            String remoteAddress,
+            String localSubnet,
+            int clients,
+            String rate,
+            String size,
+            CompositeDistribution localAddressDistribution,
+            int duration,
+            int cycle) {
         this.intf = intf;
         this.remoteAddress = remoteAddress;
         this.localSubnet = localSubnet;
@@ -29,6 +53,7 @@ class Traffic {
         this.size = size;
         this.localAddressDistribution = localAddressDistribution;
         this.duration = duration;
+        this.cycle = cycle;
     }
 
     String getIntf() {
@@ -55,7 +80,7 @@ class Traffic {
         return size;
     }
 
-    Distribution getLocalAddressDistribution() {
+    CompositeDistribution getLocalAddressDistribution() {
         return localAddressDistribution;
     }
 
@@ -63,10 +88,15 @@ class Traffic {
         return duration;
     }
 
+    public int getCycle() {
+        return cycle;
+    }
+
     @Override
     public String toString() {
         return "Clients:  " + clients
                 + "\nDist:     " + localAddressDistribution
-                + "\nDuration: " + duration + " s";
+                + "\nDuration: " + duration + " s"
+                + "\nCycle: " + cycle + " s";
     }
 }

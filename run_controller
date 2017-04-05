@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+
+ssh -t nsl002 "java -jar floodlight.jar -cf floodlightloadbalancer.properties | tee controller.log" | tee test.log | tee /dev/tty | ./process_log.py > test.tsv

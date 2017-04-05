@@ -5,6 +5,7 @@
   "clients": 10,
   "rate": "1k",
   "size": "1k",
-  "localAddress": "Normal(0.1, 0.0025)",
-  "duration": 120
+  "localAddress": "Normal(0.251953125, 9.53674316e-7)",
+  "duration": 900,
+  "cycle": 10
 }

@@ -36,6 +36,22 @@ public class IPUtil {
         throw new RuntimeException("Somehow the given IP addresses aren't contained in 0.0.0.0/0, WTF!");
     }
 
+    public static IPv4AddressRange range(List<IPv4AddressWithMask> prefixes) {
+        if (prefixes == null || prefixes.isEmpty()) {
+            return null;
+        }
+        IPv4AddressRange range = IPv4AddressRange.of(prefixes.get(0));
+        prefixes.forEach(prefix -> {
+            if (prefix.getValue().compareTo(range.getMin()) < 0) {
+                range.setMin(prefix.getValue());
+            }
+            if (prefix.getSubnetBroadcastAddress().compareTo(range.getMax()) > 0) {
+                range.setMax(prefix.getSubnetBroadcastAddress());
+            }
+        });
+        return range;
+    }
+
     public static IPv4AddressWithMask subprefix0(IPv4AddressWithMask prefix) {
         return prefix.getValue()
                 .withMaskOfLength(prefix.getMask().asCidrMaskLength() + 1);

@@ -9,6 +9,8 @@ import net.floodlightcontroller.proactiveloadbalancer.domain.Topology;
 import org.projectfloodlight.openflow.protocol.OFFactory;
 import org.projectfloodlight.openflow.types.DatapathId;
 import org.projectfloodlight.openflow.types.IPv4Address;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.Map.Entry;
@@ -19,6 +21,8 @@ import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toMap;
 
 class ConnectionLoadBalancer {
+
+    private static final Logger LOG = LoggerFactory.getLogger(ConnectionLoadBalancer.class);
 
     // Config
     private Strategy strategy;
@@ -35,7 +39,10 @@ class ConnectionLoadBalancer {
     private Map<IPv4Address, Integer> serverConnectionCounts;
     private Map<IPv4Address, Map<DatapathId, LoadBalancingFlow>> knownPhysicalFlows;
 
-    ConnectionLoadBalancer(Strategy strategy, Topology topology, Map<DatapathId, IPv4Address> vips, IOFSwitchService switchService) {
+    ConnectionLoadBalancer(Strategy strategy,
+            Topology topology,
+            Map<DatapathId, IPv4Address> vips,
+            IOFSwitchService switchService) {
         this.strategy = strategy;
         this.topology = topology;
         this.servers = topology.getServers();
@@ -72,6 +79,10 @@ class ConnectionLoadBalancer {
             if (isClientKnown(client)) {
                 IPv4Address server = clientServerAllocations.get(client);
                 Map<DatapathId, LoadBalancingFlow> physicalFlows = knownPhysicalFlows.get(client);
+                if (physicalFlows == null) {
+                    LOG.warn("Flow removed for client {}, but no physical flows known.");
+                    return;
+                }
                 physicalFlows.remove(switchId);
 
                 if (physicalFlows.isEmpty()) {
@@ -83,7 +94,16 @@ class ConnectionLoadBalancer {
         }
     }
 
-    List<LoadBalancingFlow> knownPhysicalFlowsForSwitch(DatapathId switchId) {
+    void installPhysicalFlowsInSwitch(DatapathId switchId) {
+        IOFSwitch iofSwitch = switchService.getActiveSwitch(switchId);
+        OFFactory factory = iofSwitch.getOFFactory();
+        IPv4Address vip = vips.get(switchId);
+        List<LoadBalancingFlow> flows = knownPhysicalFlowsForSwitch(switchId);
+        MessageBuilder.addLoadBalancingMicroFlows(switchId, factory, vip, flows, strategy.cookie())
+                .forEach(iofSwitch::write);
+    }
+
+    private List<LoadBalancingFlow> knownPhysicalFlowsForSwitch(DatapathId switchId) {
         return knownPhysicalFlows.values().stream()
                 .map(flows -> flows.get(switchId))
                 .filter(Objects::nonNull)
@@ -131,7 +151,7 @@ class ConnectionLoadBalancer {
             OFFactory factory = iofSwitch.getOFFactory();
             IPv4Address vip = vips.get(switchId);
             List<LoadBalancingFlow> flows = singletonList(physicalFlows.get(switchId));
-            MessageBuilder.addLoadBalancingIngressFlows(switchId, factory, vip, flows, strategy.cookie(), true)
+            MessageBuilder.addLoadBalancingMicroFlows(switchId, factory, vip, flows, strategy.cookie())
                     .forEach(iofSwitch::write);
         });
     }

@@ -11,7 +11,7 @@ import java.util.Random;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-class Distribution {
+class CompositeDistribution {
 	private static Pattern termPattern = Pattern.compile("(\\w+)\\((.*)\\)");
 
 	private String sourceString;
@@ -38,13 +38,7 @@ class Distribution {
 		}
 	}
 
-	private Distribution(String sourceString,
-			List<RealDistribution> distributions) {
-		this.sourceString = sourceString;
-		this.distributions = distributions;
-	}
-
-	static Distribution fromString(String expr) {
+	CompositeDistribution(String expr) {
 		String[] terms = expr.replace("\\s", "").split("\\+");
 		List<RealDistribution> dists = new ArrayList<>();
 		for (String term : terms) {
@@ -60,12 +54,42 @@ class Distribution {
 				throw new IllegalArgumentException("Invalid term: " + term);
 			}
 		}
-
-		return new Distribution(expr, dists);
+		this.sourceString = expr;
+		this.distributions = dists;
 	}
 
 	double sample() {
 		RealDistribution dist = distributions.get(new Random().nextInt(distributions.size()));
+		double sample = dist.sample();
+		while (sample < 0 || 1 < sample) {
+			sample = dist.sample();
+		}
+		return sample;
+	}
+
+	private double cycleMean(double mean, double time, double cycle) {
+		double r = (mean + 2.0 * time / cycle) % 2.0;
+		if (r <= 1) {
+			return r;
+		} else {
+			return 2 - r;
+		}
+	}
+
+	double sample(double time, double cycle) {
+		RealDistribution protoDist = distributions.get(new Random().nextInt(distributions.size()));
+		RealDistribution dist;
+		if (protoDist instanceof ConstantRealDistribution) {
+			return cycleMean(protoDist.getNumericalMean(), time, cycle);
+		} else if (protoDist instanceof UniformRealDistribution) {
+			dist = protoDist;
+		} else if (protoDist instanceof NormalDistribution) {
+			NormalDistribution normalProtoDist = (NormalDistribution) protoDist;
+			dist = new NormalDistribution(cycleMean(normalProtoDist.getNumericalMean(), time, cycle), normalProtoDist.getStandardDeviation());
+		} else {
+			throw new IllegalStateException("Distribution not supported: " + protoDist.getClass().getSimpleName());
+		}
+
 		double sample = dist.sample();
 		while (sample < 0 || 1 < sample) {
 			sample = dist.sample();

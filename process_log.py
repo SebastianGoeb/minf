@@ -41,43 +41,42 @@ snapshotRegex = re.compile(r'snapshot: (.*)')
 matchObjects = [snapshotRegex.search(line.strip()) for line in sys.stdin]
 rawData = [json.loads(mo.group(1)) for mo in matchObjects if mo]
 
+if rawData:
+    # One-off calculations
+    timestampOffset = rawData[0]['timestamp']
 
-# One-off calculations
-timestampOffset = rawData[0]['timestamp']
+    # Process data
+    data = []
+    for rawDatum in rawData:
+        timestamp = rawDatum['timestamp'] - timestampOffset
+        numRules = rawDatum['numRules']
+        serverByteCounts = extractServerByteCounts(rawDatum)
+        serverRates = calculateServerRates(serverByteCounts, data[-1]['serverByteCounts'] if data else None, timestamp - data[-1]['timestamp'] if data else None)
+        if not serverRates:
+            continue
+        loadImbalance = calculateLoadImbalance(serverRates)
 
+        # Package and append processed datum
+        datum = {
+            'timestamp': timestamp,
+            'numRules': numRules,
+            'serverByteCounts': serverByteCounts,
+            'serverRates': serverRates,
+            'loadImbalance': loadImbalance
+        }
+        data.append(datum)
 
-# Process data
-data = []
-for rawDatum in rawData:
-    timestamp = rawDatum['timestamp'] - timestampOffset
-    numRules = rawDatum['numRules']
-    serverByteCounts = extractServerByteCounts(rawDatum)
-    serverRates = calculateServerRates(serverByteCounts, data[-1]['serverByteCounts'] if data else None, timestamp - data[-1]['timestamp'] if data else None)
-    if not serverRates:
-        continue
-    loadImbalance = calculateLoadImbalance(serverRates)
+    # Turn in tsv
+    headers = ['Timestamp']
+    headers += ['Rules: ' + dpid for dpid in sorted(data[0]['numRules'].keys())]
+    headers += ['Rate: ' + ip for ip in sorted(data[0]['serverRates'].keys(), key=lambda x: ip2int(x))]
+    headers += ['Load Imbalance']
+    print('\t'.join(headers))
 
-    # Package and append processed datum
-    datum = {
-        'timestamp': timestamp,
-        'numRules': numRules,
-        'serverByteCounts': serverByteCounts,
-        'serverRates': serverRates,
-        'loadImbalance': loadImbalance
-    }
-    data.append(datum)
-
-
-# Turn in csv
-headers = ['Timestamp']
-headers += ['Rules: ' + dpid for dpid in sorted(data[0]['numRules'].keys())]
-headers += ['Rate: ' + ip for ip in sorted(data[0]['serverRates'].keys(), key=lambda x: ip2int(x))]
-headers += ['Load Imbalance']
-print('\t'.join(headers))
-
-for datum in data:
-    row = [str(datum['timestamp'])]
-    row += [str(rules) for dpid, rules in sorted(datum['numRules'].iteritems())]
-    row += [str(rate) for ip, rate in sorted(datum['serverRates'].iteritems(), key=lambda x: ip2int(x[0]))]
-    row += [str(datum['loadImbalance']) if datum['loadImbalance'] else '']
-    print('\t'.join(row))
+    # Print data
+    for datum in data:
+        row = [str(datum['timestamp'] / 1000.0)]
+        row += [str(rules) for dpid, rules in sorted(datum['numRules'].iteritems())]
+        row += [str(rate) for ip, rate in sorted(datum['serverRates'].iteritems(), key=lambda x: ip2int(x[0]))]
+        row += [str(datum['loadImbalance']) if datum['loadImbalance'] else 'nan']
+        print('\t'.join(row))

@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+
+ovs-ofctl del-flows br2
+ovs-ofctl add-flow br2 ip,nw_dst=10.1.2.2,actions=output:5
+ovs-ofctl add-flow br2 ip,nw_dst=10.1.2.3,actions=output:6
+ovs-ofctl add-flow br2 ip,nw_src=10.1.2.2,nw_dst=10.0.0.0/8,actions=output:7
+ovs-ofctl add-flow br2 ip,nw_src=10.1.2.3,nw_dst=10.0.0.0/8,actions=output:7

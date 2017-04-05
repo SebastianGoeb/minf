@@ -44,7 +44,7 @@ public class Config {
     private List<DatapathId> loadBalancers;
 
     @JsonProperty
-    private long measurementInterval;
+    private long loadBalancingInterval;
 
     @JsonProperty
     private double measurementThreshold;
@@ -123,12 +123,12 @@ public class Config {
         return this;
     }
 
-    public long getMeasurementInterval() {
-        return measurementInterval;
+    public long getLoadBalancingInterval() {
+        return loadBalancingInterval;
     }
 
-    public Config setMeasurementInterval(long measurementInterval) {
-        this.measurementInterval = measurementInterval;
+    public Config setLoadBalancingInterval(long loadBalancingInterval) {
+        this.loadBalancingInterval = loadBalancingInterval;
         return this;
     }
 
@@ -210,7 +210,7 @@ public class Config {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         Config config = (Config) o;
-        return measurementInterval == config.measurementInterval &&
+        return loadBalancingInterval == config.loadBalancingInterval &&
                 serverMeasurementInterval == config.serverMeasurementInterval &&
                 Double.compare(config.measurementThreshold, measurementThreshold) == 0 &&
                 ignoreMeasurements == config.ignoreMeasurements &&
@@ -232,7 +232,7 @@ public class Config {
                 strategyRanges,
                 topology,
                 loadBalancers,
-                measurementInterval,
+                loadBalancingInterval,
                 measurementThreshold,
                 ignoreMeasurements,
                 weights,
