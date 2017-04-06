@@ -7,13 +7,16 @@ Use `./setup` to setup the floodlight environment. This pulls a fresh copy of th
 Use `./build -cds` to build the controller, driver and server. This requires floodlight to be set up with the above script.
 
 ## Controller
-A floodlight module that performs proactive load balancing.
+A floodlight module that performs proactive load balancing. Run with `./run_controller_local`.
 
 ## Driver
 This driver script generates http requests from arbitrary IP addresses for arbitrary amounts of data (see server) and with arbitrary rate limits. Run with `sudo java -jar driver/target/driver.jar experiments/test.json`. Sudo is necessary since the application will assign and unassign IP addresses to a given interface. The flags `-d` and `-v` toggle dry-run mode and verbose mode respectively.
 
 ## Server
 This server generates HTTP responses of arbitrary length at `http://<serverip>:8080/<amount>`. It accepts a human readable length with any of these units: `1234 | 1k | 2K | 3M | 4G | 5T | 6P`. Only integers are allowed and unitless numbers are intepreted as bytes. Run with `java -jar server/target/server.jar`. If running in the background, make sure to redirect output to /dev/null as failure to do so may cause stdout to fill up and the server to stop functioning.
+
+## Processing Controller Logs
+To process controller logs use `cat test.log | ./process_log.py > test.tsv`, assuming test.log contains the controller output.
 
 ## Dependencies
 * python 2
