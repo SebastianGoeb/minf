@@ -66,6 +66,14 @@ if rawData:
         }
         data.append(datum)
 
+    while data and not data[0]['loadImbalance']:
+        del data[0]
+
+    if not data:
+        exit(0)
+
+    timestampOffset = data[0]['timestamp']
+
     # Turn in tsv
     headers = ['Timestamp']
     headers += ['Rules: ' + dpid for dpid in sorted(data[0]['numRules'].keys())]
@@ -75,7 +83,7 @@ if rawData:
 
     # Print data
     for datum in data:
-        row = [str(datum['timestamp'] / 1000.0)]
+        row = [str(round((datum['timestamp'] - timestampOffset) / 1000.0, 1))]
         row += [str(rules) for dpid, rules in sorted(datum['numRules'].iteritems())]
         row += [str(rate) for ip, rate in sorted(datum['serverRates'].iteritems(), key=lambda x: ip2int(x[0]))]
         row += [str(datum['loadImbalance']) if datum['loadImbalance'] else 'nan']
